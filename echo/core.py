@@ -1,10 +1,11 @@
 import os
 from pathlib import Path
 
-import echoes.constants as cn
-import echoes.gutenberg as gtb
-import echoes.pdf_utils as pdfz
-import echoes.text_to_mp3 as t2m
+import echo.constants as cn
+import echo.extractors.bloated_text as bt
+import echo.extractors.pdfs as pdfz
+import echo.mp3_generators as t2m
+import echo.mp3_utils as mp
 
 
 def _write_file(file_path: str, contents: str):
@@ -59,12 +60,12 @@ def convert(
     output_file = None
     match process:
         case cn.Process.GUTENBURG_MP3:
-            x = gtb.extract_gutenberg_data(input_path)
-            output_file = _in_outputs_dir(gtb.name_for_file(x, ext="mp3"))
+            x = bt.extract_gutenberg_data(input_path)
+            output_file = _in_outputs_dir(bt.name_for_file(x, ext="mp3"))
             t2m.text_to_mp3(x["contents"], output_file, voice=voice)
         case cn.Process.GUTENBURG_TEXT:
-            x = gtb.extract_gutenberg_data(input_path)
-            output_file = _in_outputs_dir(gtb.name_for_file(x, ext="txt"))
+            x = bt.extract_gutenberg_data(input_path)
+            output_file = _in_outputs_dir(bt.name_for_file(x, ext="txt"))
             _write_file(output_file, x["contents"])
         case cn.Process.PDF_TO_TEXT:
             pages = pdfz.extract_pdf_pages(
@@ -90,6 +91,6 @@ def convert(
             output_file = t2m.file_to_mp3(input_path, voice=voice, output_dir=cn.OUTPUT_DIRECTORY)
 
     if "mp3" in process and icon_path:
-        t2m.add_album_art(output_file, icon_path)
+        mp.add_front_cover(output_file, icon_path)
 
     return output_file

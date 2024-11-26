@@ -2,3 +2,5 @@ edge-tts
 mutagen
 pypdf2
 python-dotenv
+EbookLib
+beautifulsoup4

@@ -1,4 +1,4 @@
-# echoes
+# echo
 Utilities to convert text based files into audio files using the Edge Text To Speech server
 
 # Installation
@@ -44,24 +44,32 @@ Start the UI with:
 ## More Granular functionality
 ### Strip out Gutenberg pre and post amble
 ```python
-import echoes.gutenberg as g
+import echo.extractors.bloated_text as g
 g.extract_gutenberg_data("samples/abridged_virgil_from_gutenberg.txt")
 # -> {'title': 'The Bucolics and Eclogues',  'author': 'Virgil', 'contents': '37 BC\n\nTHE ECLOGUES ...' 
 ```
 
 ### PDF to text file
 ```python
-import echoes.pdf_utils as p
+import echo.extractors.pdf_utils as p
 
 p.extract_pdf_pages("samples/america_against_america_3pages.pdf")
 # -> ['Note: As a reminder ...', 'The approach of ...', 'oppose this ominous...']
 ```
+### EPUB to text file
+```python
+import echo.extractors.html_like as h
+
+h.extract_epub_text("samples/critique_pure_reason-kant.epub")
+# -> ['\n\n\nThe Project ...', '\n\n\nThe Project ...', ...]
+```
 ### Text to mp3
 ```python
-import echoes.text_to_mp3 as t
+import echo.mp3_generators as t
+import echo.mp3_utils as mp
 
 mp3_file = t.text_to_mp3("Hello friend, you look excellent today!", "affirmation.mp3", voice="Sonia_GB")
-t.add_album_art(mp3_file, "samples/cow.jpg") # https://cyfairanimalhospital.com/cows/cow-facts/
+mp.add_front_cover(mp3_file, "samples/cow.jpg") # https://cyfairanimalhospital.com/cows/cow-facts/
 # Creates affirmation.mp3 file in project root
 
 # or create from a text file

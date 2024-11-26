@@ -3,8 +3,8 @@ import pprint
 import tkinter as tk
 from tkinter import filedialog, ttk
 
-import echoes.core as c
-import echoes.constants as cn
+import echo.core as c
+import echo.constants as cn
 
 log = logging.getLogger(__name__)
 

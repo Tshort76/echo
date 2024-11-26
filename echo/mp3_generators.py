@@ -1,14 +1,11 @@
 import logging
-import mimetypes
 import os
 import time
 from pathlib import Path
 import pprint
 
 import edge_tts  # https://github.com/rany2/edge-tts/tree/master
-from mutagen.id3 import APIC, ID3, error
-from mutagen.mp3 import MP3
-import echoes.constants as cn
+import echo.constants as cn
 
 
 log = logging.getLogger(__name__)
@@ -20,7 +17,7 @@ def text_to_mp3(text: str, mp3_path: str, voice: str, rate: str = cn.DEFAULT_SPE
     Args:
         text (str): The text to be converted into audio data
         mp3_path (str): file path to which the resulting audio data will be written
-        voice (str): voice to use for the dictation (see echoes.constants)
+        voice (str): voice to use for the dictation (see echo.constants)
         rate (str, optional): playback speed adjustment. Defaults to "+0%".
 
     Returns:
@@ -62,31 +59,3 @@ def file_to_mp3(file_path: str, voice: str, output_dir: str = None) -> str:
     with open(p, mode="r", encoding="utf-8") as fp:
         text_to_mp3(fp.read(), mp3_path, voice=voice)
     return mp3_path
-
-
-def add_album_art(mp3_path: Path, image_path: Path) -> None:
-    "Embeds an image into an MP3 file as album art."
-    try:
-        mp3 = MP3(mp3_path, ID3=ID3)
-
-        # Add ID3 tag if it doesn't exist
-        if not mp3.tags:
-            mp3.add_tags()
-
-        mime_type, _ = mimetypes.guess_type(image_path)
-
-        with open(image_path, "rb") as img:
-            mp3.tags.add(
-                APIC(
-                    encoding=3,  # 3 is for UTF-8
-                    mime=mime_type,
-                    type=3,  # 3 is for the album front cover
-                    desc="Cover",  # Description of the image
-                    data=img.read(),  # Actual image data
-                )
-            )
-
-        mp3.save()
-        log.info(f"Added {image_path} to {mp3_path} as album art!")
-    except error as e:
-        log.error(f"An error occurred: {e}")

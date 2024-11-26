@@ -42,7 +42,7 @@ def _stylize() -> ttk.Style:
 def initialize_frame() -> tuple[tk.Tk, ttk.Frame]:
     # Initialize the main window
     root = tk.Tk()
-    root.title("Echoes")
+    root.title("echo")
     root.geometry("500x300")
     root.configure(bg="#2b2b2b")  # background color
 

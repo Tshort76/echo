@@ -27,7 +27,7 @@ def text_to_mp3(text: str, mp3_path: str, voice: str, rate: str = cn.DEFAULT_SPE
     x = edge_tts.Communicate(text, cn.voice_lookups[voice], rate=rate)
     x.save_sync(mp3_path)
     t1 = time.time()
-    log.info(
+    log.debug(
         pprint.pformat(
             {
                 "mp3_path": mp3_path,

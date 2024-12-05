@@ -30,11 +30,12 @@ def _state_snapshot():
         "input_path": _stripped_path(widgets_state["input_file"]),
         "icon_path": _stripped_path(widgets_state["image_file"]),
         "process": widgets_state["process"].get(),
+        "save_steps": widgets_state["save_steps"].get(),
         "voice": widgets_state["voice"].get(),
         "starting_page": _safe_int(widgets_state["start_range"], 0),
         "ending_page": _safe_int(widgets_state["end_range"], 9999),
     }
-    log.info(pprint.pformat(kw_args))
+    log.debug(pprint.pformat(kw_args))
     output_path = c.convert(**kw_args)
     if output_path:
         c.open_parent_dir(output_path)
@@ -81,6 +82,11 @@ def add_core_widgets(main_frame) -> None:
     widgets_state["process"] = _labeled_options(
         main_frame, label="Process:", row_num=_row, options=cn.Process.options(), default=cn.DEFAULT_PROCESS
     )
+    widgets_state["save_steps"] = tk.BooleanVar(value=False)
+    _ = tk.Checkbutton(
+        main_frame, text="Save Steps?", variable=widgets_state["save_steps"], onvalue=True, offvalue=False
+    )
+    _.grid(row=_row, column=2, padx=2, pady=2)
     _row += 1
 
     ##### Image File Picker

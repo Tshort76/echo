@@ -59,8 +59,3 @@ def merge_batches(mp3_dir: str, name_prefix: str, batch_size: int = 8):
 
     if files:
         merge_mp3s(files, get_file(idx))
-
-
-# import echo.mp3_utils as m
-# mp3_dir = "C:\\Users\\tom\\Downloads\\Mises-Human-Action-Audiobook"
-# m.merge_batches(mp3_dir, "human_action_temp")

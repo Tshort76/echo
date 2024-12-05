@@ -13,8 +13,3 @@ if _verbose and _verbose.lower() == "true":
 root, main_frame = initialize_frame()
 add_core_widgets(main_frame)
 root.mainloop()
-
-
-import echo.extractors.html_like as h
-
-h.extract_epub_texts("samples/critique_pure_reason-kant.epub")

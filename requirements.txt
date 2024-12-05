@@ -4,3 +4,7 @@ pypdf2
 python-dotenv
 EbookLib
 beautifulsoup4
+requests
+pytesseract
+pdf2image
+opencv-python-headless

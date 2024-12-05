@@ -9,6 +9,14 @@ $ ./.venv/Scripts/Activate.ps1
 (.venv) $ pip install -r requirements.txt
 ```
 
+## To handle scanned pdfs
+### Install Poppler for pdf2image
+[pdf2image](https://github.com/Belval/pdf2image) requires the `poppler` library, which Windows users will have to build or download. [@oschwartz10612](https://github.com/oschwartz10612/poppler-windows/releases/) has a version which is the most up-to-date. You will then have to add the `bin/` folder to PATH or use `poppler_path = "C:\path\to\poppler-xx\bin"` as an argument in `pdf2image.convert_from_path`.
+
+### Install Tesseract
+`winget install --id=UB-Mannheim.TesseractOCR -e`
+Add the binaries directory, typically `C:\Program Files\Tesseract-OCR`, to your PATH variable
+
 ## Tkinter UI
 This project includes a Tkinter-based UI for user convenience.  To use it, you will need to have a complete Python installation on your machine, including the tk/tcl packages.
 To check this, you can run `python -m tkinter` and if a little UI window pops up, you are in good shape.  If you get an error ... the internet is your friend!  I had an error with running from the within a venv environment, but copying the `tcl/tcl8.6` and `tcl/tk8.6` folders into the `Lib` folder (all within the Python installation folder) fixed my issues. My Python installation folder was located at `C:\Users\<name>\AppData\Local\Programs\Python\Python313`.
@@ -44,23 +52,23 @@ Start the UI with:
 ## More Granular functionality
 ### Strip out Gutenberg pre and post amble
 ```python
-import echo.extractors.bloated_text as g
-g.extract_gutenberg_data("samples/abridged_virgil_from_gutenberg.txt")
+import echo.extractors.text as t
+t.extract_gutenberg_data("samples/abridged_virgil_from_gutenberg.txt")
 # -> {'title': 'The Bucolics and Eclogues',  'author': 'Virgil', 'contents': '37 BC\n\nTHE ECLOGUES ...' 
 ```
 
 ### PDF to text file
 ```python
-import echo.extractors.pdf_utils as p
+import echo.extractors.pdfs as p
 
-p.extract_pdf_pages("samples/america_against_america_3pages.pdf")
+p.extract_text_pages("samples/cybernetics_one_page.pdf")
 # -> ['Note: As a reminder ...', 'The approach of ...', 'oppose this ominous...']
 ```
 ### EPUB to text file
 ```python
-import echo.extractors.html_like as h
+import echo.extractors.misc as m
 
-h.extract_epub_text("samples/critique_pure_reason-kant.epub")
+m.extract_epub_text("samples/critique_pure_reason-kant.epub")
 # -> ['\n\n\nThe Project ...', '\n\n\nThe Project ...', ...]
 ```
 ### Text to mp3

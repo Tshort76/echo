@@ -1,11 +1,14 @@
 import os
 from pathlib import Path
+import logging
 
 import echo.constants as cn
-import echo.extractors.bloated_text as bt
+import echo.extractors.text as bt
 import echo.extractors.pdfs as pdfz
 import echo.mp3_generators as t2m
 import echo.mp3_utils as mp
+
+log = logging.getLogger(__name__)
 
 
 def _write_file(file_path: str, contents: str):
@@ -34,6 +37,7 @@ def convert(
     input_path: str,
     voice: str = cn.DEFAULT_VOICE,
     icon_path: str = None,
+    save_steps: bool = False,
     starting_page: int = 0,
     ending_page: int = 9999,
 ) -> str:
@@ -44,6 +48,7 @@ def convert(
         input_path (str): path to the input data file
         voice (str, optional): narration voice, if converting to MP3. Defaults to env.DEFAULT_VOICE
         icon_path (str, optional): path to album front cover, if converting to MP3. Defaults to None.
+        save_steps (bool, optional): whether to save the output of intermediate steps. Defaults to False
         starting_page (int, optional): starting page for pdf extraction. Defaults to 0.
         ending_page (int, optional): ending page for pdf extraction. Defaults to 9999.
 
@@ -68,7 +73,7 @@ def convert(
             output_file = _in_outputs_dir(bt.name_for_file(x, ext="txt"))
             _write_file(output_file, x["contents"])
         case cn.Process.PDF_TO_TEXT:
-            pages = pdfz.extract_pdf_pages(
+            pages = pdfz.extract_text_pages(
                 input_path,
                 start_page_num=starting_page,
                 end_page_num=ending_page,
@@ -76,12 +81,16 @@ def convert(
             output_file = _in_outputs_dir(pdfz.name_for_file(input_path, "txt"))
             _write_file(output_file, "\n".join(pages))
         case cn.Process.PDF_TO_MP3:
-            pages = pdfz.extract_pdf_pages(
+            pages = pdfz.extract_text_pages(
                 input_path,
                 start_page_num=starting_page,
                 end_page_num=ending_page,
             )
             output_file = _in_outputs_dir(pdfz.name_for_file(input_path, "mp3"))
+            if save_steps:
+                txt_file = output_file.replace("mp3", "txt")
+                _write_file(txt_file, "\n".join(pages))
+                log.info(f"Wrote intermediate text file: {txt_file}")
             t2m.text_to_mp3(
                 "\n".join(pages),
                 output_file,

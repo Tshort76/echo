@@ -5,8 +5,7 @@ import logging
 import echo.constants as cn
 import echo.extractors.text as bt
 import echo.extractors.pdfs as pdfz
-import echo.mp3_generators as t2m
-import echo.mp3_utils as mp
+import echo.mp3z as mp3z
 
 log = logging.getLogger(__name__)
 
@@ -17,7 +16,7 @@ def _write_file(file_path: str, contents: str):
 
 
 def _play_mp3_clip(voice: str):
-    mp3_path = t2m.file_to_mp3("resources/sample.txt", voice=voice, output_dir=cn.OUTPUT_DIRECTORY)
+    mp3_path = mp3z.file_to_mp3("resources/sample.txt", voice=voice, output_dir=cn.OUTPUT_DIRECTORY)
     os.startfile(mp3_path)
 
 
@@ -67,7 +66,7 @@ def convert(
         case cn.Process.GUTENBURG_MP3:
             x = bt.extract_gutenberg_data(input_path)
             output_file = _in_outputs_dir(bt.name_for_file(x, ext="mp3"))
-            t2m.text_to_mp3(x["contents"], output_file, voice=voice)
+            mp3z.text_to_mp3(x["contents"], output_file, voice=voice)
         case cn.Process.GUTENBURG_TEXT:
             x = bt.extract_gutenberg_data(input_path)
             output_file = _in_outputs_dir(bt.name_for_file(x, ext="txt"))
@@ -91,15 +90,15 @@ def convert(
                 txt_file = output_file.replace("mp3", "txt")
                 _write_file(txt_file, "\n".join(pages))
                 log.info(f"Wrote intermediate text file: {txt_file}")
-            t2m.text_to_mp3(
+            mp3z.text_to_mp3(
                 "\n".join(pages),
                 output_file,
                 voice=voice,
             )
         case cn.Process.TEXT_TO_MP3:
-            output_file = t2m.file_to_mp3(input_path, voice=voice, output_dir=cn.OUTPUT_DIRECTORY)
+            output_file = mp3z.file_to_mp3(input_path, voice=voice, output_dir=cn.OUTPUT_DIRECTORY)
 
     if "mp3" in process and icon_path:
-        mp.add_front_cover(output_file, icon_path)
+        mp3z.add_front_cover(output_file, icon_path)
 
     return output_file

@@ -1,10 +1,10 @@
-edge-tts
-mutagen
-pypdf2
+edge-tts  # mp3 generation
+mutagen   # mp3 generation
+pymupdf
 python-dotenv
-EbookLib
-beautifulsoup4
+EbookLib   # epub handling
+beautifulsoup4  # epub and html handling
 requests
-pytesseract
-pdf2image
-opencv-python-headless
+pytesseract  # ocr for pdfs
+pdf2image  # ocr for pdfs
+opencv-python-headless  # ocr for pdfs

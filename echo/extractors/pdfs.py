@@ -9,33 +9,13 @@ import pytesseract
 import requests
 from dotenv import load_dotenv
 from pdf2image import convert_from_path
-from PyPDF2 import PdfReader
+import pymupdf as pp
 
 load_dotenv()
 log = logging.getLogger(__name__)
 
-
-def extract_embedded_text(pdf_path: str, start_page_num: int = 0, end_page_num: int = 9999) -> list[str]:
-    """Extract text from a pdf as a sequence of strings representing page text
-
-    Args:
-        pdf_path (str): file path to the pdf
-        start_page_num (int, optional): Starting page for extraction. Defaults to 0.
-        end_page_num (int, optional): Ending page for extraction. Defaults to 9999.
-
-    Returns:
-        list[str]: sequence of page contents (each page is one string)
-    """
-    reader = PdfReader(pdf_path)
-    pages = []
-    for page_num, page in enumerate(reader.pages):
-        if page_num > end_page_num:
-            break
-        if page_num >= start_page_num:
-            if page_num % 10 == 0:
-                log.info(f"Processed {page_num - start_page_num} pages ...")
-            pages.append(page.extract_text())
-    return pages
+UNPRINTABLES = re.compile(r"[^\x20-\x7E\n]")
+EXTRA_SPACE = re.compile(r"\s{2,}")
 
 
 def name_for_file(pdf_path: str, ext: str = "mp3") -> str:
@@ -64,43 +44,7 @@ def _rotate_image(img: np.ndarray) -> np.ndarray:
     return rotated
 
 
-def _greyscale_image(image: np.ndarray) -> np.ndarray:
-    gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-    gray = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY | cv2.THRESH_OTSU)[1]
-    return gray
-
-
-def _crop_page_edges(image: np.ndarray, edge_crop_percent: float = 0.05) -> np.ndarray:
-    h, w = image.shape[:2]
-    crop_h = int(h * edge_crop_percent)
-    crop_w = int(w * edge_crop_percent)
-
-    return image[crop_h:-crop_h, crop_w:-crop_w]
-
-
-def extract_text_from_scanned_pdf(pdf_path: str) -> str:
-    # Convert PDF to images
-    poppler_path = os.environ.get("POPPLER_PATH")
-    if not poppler_path:
-        log.warning(f"Could not find poppler lib.  Did you specify the path in your env?")
-
-    images = convert_from_path(pdf_path, poppler_path=poppler_path)
-
-    # Extract text from each page
-    full_text = []
-    for image in images:
-        x = np.array(image)
-        x = _greyscale_image(x)
-        # x = _rotate_image(x)
-        # x = _crop_page_edges(x, 0.01)
-        # cv2.imwrite("output_image.png", x)  # write cleaned image to temp file ... debug
-        page_text = pytesseract.image_to_string(x)
-        full_text.append(page_text)
-
-    return "\n".join(full_text)
-
-
-def correct_text_with_llm(text: str) -> str:
+def _correct_text_with_llm(text: str) -> str:
     "Perform error correction on text using OpenAI's API."
     api_key = os.environ.get("OPENAI_API_KEY")
     if not api_key:
@@ -133,33 +77,143 @@ def correct_text_with_llm(text: str) -> str:
         return text
 
 
+def _crop_page_edges(image: np.ndarray, edge_crop_percent: float = 0.05) -> np.ndarray:
+    h, w = image.shape[:2]
+    crop_h = int(h * edge_crop_percent)
+    crop_w = int(w * edge_crop_percent)
+
+    return image[crop_h:-crop_h, crop_w:-crop_w]
+
+
+def _greyscale_image(image: np.ndarray) -> np.ndarray:
+    gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+    gray = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY | cv2.THRESH_OTSU)[1]
+    return gray
+
+
+def run_ocr_on_page(pdf_path: str, page_num: int) -> str:
+    # Convert PDF to images
+    poppler_path = os.environ.get("POPPLER_PATH")
+    if not poppler_path:
+        log.warning(f"Could not find poppler lib.  Did you specify the path in your env?")
+
+    images = convert_from_path(pdf_path, first_page=page_num, last_page=page_num, poppler_path=poppler_path)
+
+    # Extract text from each page
+    page_texts = []
+    for image in images:
+        x = np.array(image)
+        x = _greyscale_image(x)
+        # x = _rotate_image(x)
+        # x = _crop_page_edges(x, 0.01)
+        # cv2.imwrite("output_image.png", x)  # write cleaned image to temp file ... debug
+        page_texts.append(pytesseract.image_to_string(x))
+
+    return " ".join(page_texts)
+
+
 def _clean_up_text(text: str) -> str:
+    if text is None:
+        return ""
     # Remove non-printable characters
-    text = re.sub(r"[^\x20-\x7E\n]", "", text)
+    text = UNPRINTABLES.sub("", text)
+    text = text.replace("-\n", "")
+    text = text.replace("\n", " ")
+    text = EXTRA_SPACE.sub(" ", text)
     return text
 
 
-def extract_text_pages(pdf_path: str, output_path: str, correct_with_llm: bool = False) -> None:
+def _contents_by_type(page: pp.Page, ann: pp.Annot) -> dict:
+    # https://pymupdf.readthedocs.io/en/latest/vars.html#annotationtypes
+    _type = ann.type  # tuple of form (id, desc1, desc2)
+    content = {}
+
+    match _type[0]:
+        case 8:  # PDF_ANNOT_HIGHLIGHT
+            content = _get_highlighted_content(page, ann)
+        case _:
+            content = {"note": ann.info.get("content")}
+
+    return {"type": _type[-1], **content}
+
+
+def _get_highlighted_content(page: pp.Page, ann: pp.Annot) -> dict:
+    _text = []
+
+    # annotation.vertices contains vertices of a polygon.  For highlights, the shapes are
+    # rectangular, with one rectangle corresponding to one line of highlights.  Vertices
+    # does not assume a rectangle, so we are given 4 vertices per rectangle but only need
+    # 2 (adjacent corners).
+
+    # Process the quad points in sets of four (two pairs for each rectangle)
+    for i in range(0, len(ann.vertices), 4):
+        rect = pp.Rect(ann.vertices[i], ann.vertices[i + 3])
+        _text.append(page.get_text("text", clip=rect).strip())
+    return {"text": " ".join(_text), "color": ann.colors, "note": ann.info.get("content")}
+
+
+def extract_page_contents(
+    pdf_path: str,
+    first_page: int = None,  # 1 indexed
+    last_page: int = None,
+    parse_text_as: str = "text",
+    force_OCR: bool = False,
+) -> list[dict]:
+    """Extracts the contents of each page from a pdf
+
+    Args:
+        pdf_path (str): Path to the target pdf
+        parse_text_as (str, optional): 'text', 'dict', 'blocks', 'json'. Defaults to "text".
+    Returns:
+        dict: keys include text, page_number, and annotations
+    """
+    _first = first_page or 1
+    _last = last_page or 9999999
+    with pp.open(pdf_path) as document:
+        pages = []
+        for page_number, page in enumerate(document, start=1):
+            if page_number < _first:
+                continue
+            if page_number > _last:
+                return pages
+            _text = None
+            try:
+                if not force_OCR:
+                    _text = page.get_text(parse_text_as)
+                if not _text:
+                    _text = run_ocr_on_page(pdf_path, page_number)
+            except Exception as ex:
+                log.error(f"Exception caught processing page {page_number}.\n{ex}")
+
+            page = {
+                "text": _clean_up_text(_text),
+                "page": page_number,
+                "annotations": [
+                    {
+                        **_contents_by_type(page, a),
+                        # "bounding_box": a.rect,
+                        "page": page_number,
+                    }
+                    for a in page.annots()
+                ],
+            }
+            pages.append(page)
+
+    return pages
+
+
+def convert_to_text(
+    pdf_path: str,
+    output_path: str,
+    first_page: int = None,
+    last_page: int = None,
+) -> None:
     "Extract text from PDF, clean and correct it, then write to a file."
 
-    raw_text = None
-    try:
-        raw_pages = extract_embedded_text(pdf_path)
-        raw_text = "\n".join(raw_pages).strip()
-    except Exception as ex:
-        log.error(ex)
-
-    if not raw_text:
-        log.debug("No Embedded text was found, parsing as scanned pdf")
-        raw_text = extract_text_from_scanned_pdf(pdf_path)
-
-    clean_text = _clean_up_text(raw_text)
-
-    if correct_with_llm:
-        clean_text = correct_text_with_llm(clean_text)
+    pages = extract_page_contents(pdf_path, first_page=first_page, last_page=last_page)
 
     # Write to output file
     with open(output_path, "w", encoding="utf-8") as file:
-        file.write(clean_text)
+        file.write("\n".join([p["text"] for p in pages]))
 
     log.info(f"Processed {pdf_path}, text saved to {output_path}")

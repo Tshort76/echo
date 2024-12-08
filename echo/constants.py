@@ -69,3 +69,5 @@ DEFAULT_VOICE = os.environ.get("DEFAULT_VOICE", "Sonia_GB")
 DEFAULT_PROCESS = os.environ.get("DEFAULT_PROCESS", Process.SAMPLE_VOICE)
 DEFAULT_SPEED = os.environ.get("DEFAULT_SPEED", "+0%")
 OUTPUT_DIRECTORY = os.environ.get("OUTPUT_DIRECTORY", "")
+LOG_FORMAT = "%(asctime)s.%(msecs)03d %(filename)s (%(levelname)s):\t%(message)s"
+LOG_DATE_FORMAT = "%H:%M:%S"

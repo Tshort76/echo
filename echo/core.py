@@ -99,6 +99,6 @@ def convert(
             output_file = mp3z.file_to_mp3(input_path, voice=voice, output_dir=cn.OUTPUT_DIRECTORY)
 
     if "mp3" in process and icon_path:
-        mp3z.add_front_cover(output_file, icon_path)
+        mp3z.add_meta_fields(output_file, icon_path)
 
     return output_file

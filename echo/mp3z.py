@@ -9,14 +9,34 @@ from pathlib import Path
 import edge_tts  # https://github.com/rany2/edge-tts/tree/master
 from mutagen.id3 import APIC, ID3, error
 from mutagen.mp3 import MP3
+from mutagen.easyid3 import EasyID3
 
 import echo.constants as cn
 
 log = logging.getLogger(__name__)
 
 
-def add_front_cover(mp3_path: Path, image_path: Path) -> None:
+def add_common_meta(mp3_path: Path, title: str = None, author: str = None) -> None:
+    try:
+        audio = EasyID3(mp3_path)
+    except Exception:
+        audio = EasyID3()  # Create ID3 tag if not present
+        audio.save(mp3_path)  # Save to attach to file
+
+    # Update metadata
+    if title:
+        audio["title"] = title
+    if author:
+        audio["artist"] = author
+    audio.save(mp3_path)
+
+
+def add_meta_fields(mp3_path: Path, image_path: Path = None, title: str = None, author: str = None) -> None:
     "Embeds an image into an MP3 file as album art."
+
+    if title or author:
+        add_common_meta(mp3_path, title, author)
+
     try:
         mp3 = MP3(mp3_path, ID3=ID3)
 
@@ -40,7 +60,7 @@ def add_front_cover(mp3_path: Path, image_path: Path) -> None:
         mp3.save()
         log.info(f"Added {image_path} to {mp3_path} as album art!")
     except error as e:
-        log.error(f"An error occurred: {e}")
+        log.error(f"An error occurred when attaching album art: {e}")
 
 
 def _merge_mp3s(mp3_files: list[str], output_file: str):
@@ -68,7 +88,7 @@ def merge_mp3s(mp3_dir: str, name_prefix: str, batch_size: int = 8):
         _merge_mp3s(files, get_file(idx))
 
 
-def text_to_mp3(text: str, mp3_path: str, voice: str, rate: str = cn.DEFAULT_SPEED) -> str:
+def text_to_mp3(text: str, mp3_path: str, voice: str = "Sonia_GB", rate: str = cn.DEFAULT_SPEED) -> str:
     """Generate an MP3 audio file from a string of text
 
     Args:
@@ -83,6 +103,7 @@ def text_to_mp3(text: str, mp3_path: str, voice: str, rate: str = cn.DEFAULT_SPE
     t0 = time.time()
     x = edge_tts.Communicate(text, cn.voice_lookups[voice], rate=rate)
     x.save_sync(mp3_path)
+    log.info(f"{mp3_path} creation complete!")
     t1 = time.time()
     log.debug(
         pprint.pformat(
@@ -98,7 +119,7 @@ def text_to_mp3(text: str, mp3_path: str, voice: str, rate: str = cn.DEFAULT_SPE
     return mp3_path
 
 
-def file_to_mp3(file_path: str, voice: str, output_dir: str = None) -> str:
+def file_to_mp3(file_path: str, voice: str = "Sonia_GB", output_dir: str = None) -> str:
     """Generate an audio file from a text file
 
     Args:

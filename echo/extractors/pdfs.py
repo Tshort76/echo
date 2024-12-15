@@ -11,11 +11,14 @@ from dotenv import load_dotenv
 from pdf2image import convert_from_path
 import pymupdf as pp
 
+from typing import Union, Optional
+
 load_dotenv()
 log = logging.getLogger(__name__)
 
 UNPRINTABLES = re.compile(r"[^\x20-\x7E\n]")
 EXTRA_SPACE = re.compile(r"\s{2,}")
+MAX_PAGE = 999999
 
 
 def name_for_file(pdf_path: str, ext: str = "mp3") -> str:
@@ -112,14 +115,15 @@ def run_ocr_on_page(pdf_path: str, page_num: int) -> str:
     return " ".join(page_texts)
 
 
-def _clean_up_text(text: str) -> str:
+def _clean_up_text(text: str) -> Optional[str]:
     if text is None:
-        return ""
+        return None
     # Remove non-printable characters
+    text = text.replace("—", " ").replace("–", " ")
+    text = text.replace("\xad\n", "")
+    text = text.replace("-\n", "")  # fails for three-year across lines ...
+    text = text.replace("\xa0", " ")
     text = UNPRINTABLES.sub("", text)
-    text = text.replace("-\n", "")
-    text = text.replace("\n", " ")
-    text = EXTRA_SPACE.sub(" ", text)
     return text
 
 
@@ -129,7 +133,7 @@ def _contents_by_type(page: pp.Page, ann: pp.Annot) -> dict:
     content = {}
 
     match _type[0]:
-        case 8:  # PDF_ANNOT_HIGHLIGHT
+        case 8 | 9:  # HIGHLIGHT or UNDERLINE
             content = _get_highlighted_content(page, ann)
         case _:
             content = {"note": ann.info.get("content")}
@@ -158,6 +162,7 @@ def extract_page_contents(
     last_page: int = None,
     parse_text_as: str = "text",
     force_OCR: bool = False,
+    content_types: list[str] = None,
 ) -> list[dict]:
     """Extracts the contents of each page from a pdf
 
@@ -168,7 +173,8 @@ def extract_page_contents(
         dict: keys include text, page_number, and annotations
     """
     _first = first_page or 1
-    _last = last_page or 9999999
+    _last = last_page or MAX_PAGE
+    log.info(f"Extracting up to {1+(_last - _first)} pages of content from {pdf_path}")
     with pp.open(pdf_path) as document:
         pages = []
         for page_number, page in enumerate(document, start=1):
@@ -176,27 +182,35 @@ def extract_page_contents(
                 continue
             if page_number > _last:
                 return pages
-            _text = None
-            try:
-                if not force_OCR:
-                    _text = page.get_text(parse_text_as)
-                if not _text:
-                    _text = run_ocr_on_page(pdf_path, page_number)
-            except Exception as ex:
-                log.error(f"Exception caught processing page {page_number}.\n{ex}")
 
-            page = {
-                "text": _clean_up_text(_text),
-                "page": page_number,
-                "annotations": [
+            _text = None
+            if content_types is None or "text" in content_types:
+                try:
+                    if not force_OCR:
+                        _text = page.get_text(parse_text_as)
+                    if not _text:
+                        _text = run_ocr_on_page(pdf_path, page_number)
+                except Exception as ex:
+                    log.error(f"Exception caught processing page {page_number}.\n{ex}")
+
+            _annotations = None
+            if content_types is None or "annotations" in content_types:
+                _annotations = [
                     {
                         **_contents_by_type(page, a),
                         # "bounding_box": a.rect,
                         "page": page_number,
                     }
                     for a in page.annots()
-                ],
+                ]
+
+            page = {
+                "text": _clean_up_text(_text),
+                "page": page_number,
+                "annotations": _annotations,
             }
+            _out_of = "" if last_page == MAX_PAGE else f" of {_last}"
+            log.debug(f"Parsed page {page_number}{_out_of} from {pdf_path}")
             pages.append(page)
 
     return pages

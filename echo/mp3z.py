@@ -100,6 +100,7 @@ def text_to_mp3(text: str, mp3_path: str, voice: str = "Sonia_GB", rate: str = c
     Returns:
         str: path of the mp3 file
     """
+    log.info(pprint.pformat({"mp3_path": mp3_path, "voice": voice, "rate": rate}))
     t0 = time.time()
     x = edge_tts.Communicate(text, cn.voice_lookups[voice], rate=rate)
     x.save_sync(mp3_path)
@@ -108,9 +109,6 @@ def text_to_mp3(text: str, mp3_path: str, voice: str = "Sonia_GB", rate: str = c
     log.debug(
         pprint.pformat(
             {
-                "mp3_path": mp3_path,
-                "voice": voice,
-                "rate": rate,
                 "mp3_size": f"{os.path.getsize(mp3_path) / 1e6:.3f} MB",
                 "cpu_time": f"{(t1 - t0)/60:.2f} minutes",
             }

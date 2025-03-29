@@ -6,6 +6,7 @@ import echo.constants as cn
 import echo.extractors.text as bt
 import echo.extractors.pdfs as pdfz
 import echo.mp3z as mp3z
+import echo.formatters.books as efb
 
 log = logging.getLogger(__name__)
 
@@ -16,7 +17,7 @@ def _write_file(file_path: str, contents: str):
 
 
 def _play_mp3_clip(voice: str):
-    mp3_path = mp3z.file_to_mp3("resources/sample.txt", voice=voice, output_dir=cn.OUTPUT_DIRECTORY)
+    mp3_path = mp3z.file_to_mp3("samples/sample.txt", voice=voice, output_dir=cn.OUTPUT_DIRECTORY)
     os.startfile(mp3_path)
 
 
@@ -102,3 +103,28 @@ def convert(
         mp3z.add_meta_fields(output_file, icon_path)
 
     return output_file
+
+
+def convert_chapter(
+    pdf_path: str,
+    mp3_path: str,
+    first_page: int,
+    last_page: int,
+    mp3_meta: dict = {},
+    voice: str = "Sonia_GB",
+    opts: dict = {},
+) -> str:
+    pages = pdfz.extract_page_contents(pdf_path, first_page=first_page, last_page=last_page, content_types=["text"])
+    audio_text = efb.smooth_pdf_for_audio(pages, opts)
+
+    txt_path = mp3_path.replace("mp3", "txt")
+    with open(txt_path, "w", encoding="utf-8") as file:
+        file.write(audio_text)
+        log.info(f"Wrote intermediate text file: {txt_path}")
+
+    if opts.get("text_file_only"):
+        return txt_path
+
+    mp3z.text_to_mp3(audio_text, mp3_path, voice=voice)
+    mp3z.add_meta_fields(mp3_path, **mp3_meta)
+    return mp3_path

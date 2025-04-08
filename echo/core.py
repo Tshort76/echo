@@ -115,7 +115,7 @@ def convert_chapter(
     opts: dict = {},
 ) -> str:
     pages = pdfz.extract_page_contents(pdf_path, first_page=first_page, last_page=last_page, content_types=["text"])
-    audio_text = efb.smooth_pdf_for_audio(pages, opts)
+    audio_text = efb.smooth_pdf_for_audio(pages)
 
     txt_path = mp3_path.replace("mp3", "txt")
     with open(txt_path, "w", encoding="utf-8") as file:

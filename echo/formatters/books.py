@@ -46,20 +46,24 @@ def _delimited_line(line: str, category: str) -> str:
     return line + " "
 
 
-def format_for_audio(page_text: str, opts: dict = {}) -> str:
+def skip_headers(lines: list[str]) -> list[str]:
+    return lines[1:]
+
+
+def format_for_audio(page_text: str) -> str:
     if not page_text:
         return ""
     page_text = page_text.replace(" . . . ", " ")
     page_text = FOOTNOTE_REF.sub(lambda x: x.group(1) + x.group(2), page_text)
-    raw_lines = page_text.splitlines()
-    skip_n_lines = opts.get("skip_n_lines", 1)
-    raw_lines = raw_lines[skip_n_lines:]
+    raw_lines = skip_headers(page_text.splitlines())
 
     cleaned, _prev = "", raw_lines[0] if raw_lines else None
     for raw_line in raw_lines:  # first line is a page header
         if line := raw_line.strip():
             if FIGURE.match(line) or FOOTNOTE.match(line):
                 break  # Figure Captions or Footnotes at bottom of page, no content below
+            # elif line.startswith("Open Access") or line.startswith("Originally published"):
+            #     break  # Open access journal ... very specific to Asia in the 21st century ... TODO remove
             elif line.isdigit():
                 continue  # ignore lines with a single (page) number
 
@@ -73,10 +77,10 @@ def format_for_audio(page_text: str, opts: dict = {}) -> str:
     return cleaned
 
 
-def smooth_pdf_for_audio(pages: list[dict], opts: dict = {}) -> str:
+def smooth_pdf_for_audio(pages: list[dict]) -> str:
     _smooth = ""
     for page in pages:
-        page_text = format_for_audio(page["text"], opts)
+        page_text = format_for_audio(page["text"])
         _smooth += page_text + ("\n" if SENTENCE_END.match(page_text[-10:]) else " ")
     return _smooth
 

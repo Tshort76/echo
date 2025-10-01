@@ -14,6 +14,7 @@ if _verbose and _verbose.lower() == "true":
 
 logging.basicConfig(level=_log_level, format=cn.LOG_FORMAT, datefmt=cn.LOG_DATE_FORMAT)
 
+# Convert a text file to an mp3 and open the folder containing the MP3
 output_path = mp3z.file_to_mp3("resources/daily_listen.txt", voice="Sonia_GB")
 
 if output_path:

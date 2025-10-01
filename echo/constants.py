@@ -48,6 +48,8 @@ voice_lookups = {
     "Steffan_US": "en-US-SteffanNeural",
     "Leah_ZA": "en-ZA-LeahNeural",
     "Luke_ZA": "en-ZA-LukeNeural",
+    # Spanish
+    "Spanish_Elvira": "es-ES-ElviraNeural",
 }
 
 

@@ -17,6 +17,9 @@ def _write_file(file_path: str, contents: str):
 
 
 def _play_mp3_clip(voice: str):
+    file_path = "resources/output/sample.mp3"
+    if os.path.exists(file_path):
+        os.remove(file_path)
     mp3_path = mp3z.file_to_mp3("samples/sample.txt", voice=voice, output_dir=cn.OUTPUT_DIRECTORY)
     os.startfile(mp3_path)
 

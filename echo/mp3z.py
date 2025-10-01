@@ -88,21 +88,23 @@ def merge_mp3s(mp3_dir: str, name_prefix: str, batch_size: int = 8):
         _merge_mp3s(files, get_file(idx))
 
 
-def text_to_mp3(text: str, mp3_path: str, voice: str = "Sonia_GB", rate: str = cn.DEFAULT_SPEED) -> str:
+def text_to_mp3(text: str, mp3_path: str, voice: str = "Sonia_GB", speed: str = None) -> str:
     """Generate an MP3 audio file from a string of text
 
     Args:
         text (str): The text to be converted into audio data
         mp3_path (str): file path to which the resulting audio data will be written
         voice (str): voice to use for the dictation (see echo.constants)
-        rate (str, optional): playback speed adjustment. Defaults to "+0%".
+        speed (str, optional): playback speed adjustment. Defaults to "+0%".
 
     Returns:
         str: path of the mp3 file
     """
-    log.info(pprint.pformat({"mp3_path": mp3_path, "voice": voice, "rate": rate}))
+    log.info(pprint.pformat({"mp3_path": mp3_path, "voice": voice, "speed": speed}))
     t0 = time.time()
-    x = edge_tts.Communicate(text, cn.voice_lookups[voice], rate=rate)
+    voice_id = cn.voice_lookups.get(voice, voice)
+    playback_rate = speed or cn.DEFAULT_SPEED
+    x = edge_tts.Communicate(text, voice_id, rate=playback_rate)
     x.save_sync(mp3_path)
     log.info(f"{mp3_path} creation complete!")
     t1 = time.time()
@@ -117,7 +119,7 @@ def text_to_mp3(text: str, mp3_path: str, voice: str = "Sonia_GB", rate: str = c
     return mp3_path
 
 
-def file_to_mp3(file_path: str, voice: str = "Sonia_GB", output_dir: str = None) -> str:
+def file_to_mp3(file_path: str, voice: str = "Sonia_GB", speed: str = None, output_dir: str = None) -> str:
     """Generate an audio file from a text file
 
     Args:
@@ -133,5 +135,5 @@ def file_to_mp3(file_path: str, voice: str = "Sonia_GB", output_dir: str = None)
     if output_dir:
         mp3_path = os.path.join(output_dir, mp3_path)
     with open(p, mode="r", encoding="utf-8") as fp:
-        text_to_mp3(fp.read(), mp3_path, voice=voice)
+        text_to_mp3(fp.read(), mp3_path, voice=voice, speed=speed)
     return mp3_path

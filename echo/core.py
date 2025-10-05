@@ -16,11 +16,11 @@ def _write_file(file_path: str, contents: str):
         fp.write(contents)
 
 
-def _play_mp3_clip(voice: str):
+def _play_mp3_clip(voice: str, speed: str = "+0%"):
     file_path = "resources/output/sample.mp3"
     if os.path.exists(file_path):
         os.remove(file_path)
-    mp3_path = mp3z.file_to_mp3("samples/sample.txt", voice=voice, output_dir=cn.OUTPUT_DIRECTORY)
+    mp3_path = mp3z.file_to_mp3("samples/sample.txt", voice=voice, speed=speed, output_dir=cn.OUTPUT_DIRECTORY)
     os.startfile(mp3_path)
 
 
@@ -43,6 +43,7 @@ def convert(
     save_steps: bool = False,
     starting_page: int = 0,
     ending_page: int = 9999,
+    speed: str = None,
 ) -> str:
     """Convert a text-based file into another form
 
@@ -84,7 +85,7 @@ def convert(
             output_file = _in_outputs_dir(pdfz.name_for_file(input_path, "txt"))
             _write_file(output_file, "\n".join(pages))
         case cn.Process.PDF_TO_MP3:
-            pages = pdfz.extract_text_pages(
+            pages = pdfz.extract_page_contents(
                 input_path,
                 start_page_num=starting_page,
                 end_page_num=ending_page,
@@ -100,7 +101,7 @@ def convert(
                 voice=voice,
             )
         case cn.Process.TEXT_TO_MP3:
-            output_file = mp3z.file_to_mp3(input_path, voice=voice, output_dir=cn.OUTPUT_DIRECTORY)
+            output_file = mp3z.file_to_mp3(input_path, voice=voice, speed=speed, output_dir=cn.OUTPUT_DIRECTORY)
 
     if "mp3" in process and icon_path:
         mp3z.add_meta_fields(output_file, icon_path)

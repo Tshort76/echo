@@ -9,7 +9,7 @@ $ ./.venv/Scripts/Activate.ps1
 (.venv) $ pip install -r requirements.txt
 ```
 
-## To handle scanned pdfs
+## To handle scanned (image) pdfs
 ### Install Poppler for pdf2image
 [pdf2image](https://github.com/Belval/pdf2image) requires the `poppler` library, which Windows users will have to build or download. [@oschwartz10612](https://github.com/oschwartz10612/poppler-windows/releases/) has a version which is the most up-to-date. You will then have to add the `bin/` folder to PATH or use `poppler_path = "C:\path\to\poppler-xx\bin"` as an argument in `pdf2image.convert_from_path`.
 
@@ -17,39 +17,56 @@ $ ./.venv/Scripts/Activate.ps1
 `winget install --id=UB-Mannheim.TesseractOCR -e`
 Add the binaries directory, typically `C:\Program Files\Tesseract-OCR`, to your PATH variable
 
-## Tkinter UI
-This project includes a Tkinter-based UI for user convenience.  To use it, you will need to have a complete Python installation on your machine, including the tk/tcl packages.
-To check this, you can run `python -m tkinter` and if a little UI window pops up, you are in good shape.  If you get an error ... the internet is your friend!  I had an error with running from the within a venv environment, but copying the `tcl/tcl8.6` and `tcl/tk8.6` folders into the `Lib` folder (all within the Python installation folder) fixed my issues. My Python installation folder was located at `C:\Users\<name>\AppData\Local\Programs\Python\Python313`.
-
 ## Example .env file
 ```
-DEFAULT_VOICE="Asilia_KE"
-DEFAULT_PROCESS="text_to_mp3"
-OUTPUT_DIRECTORY="resources/outputs"
-VERBOSE=False
+DEFAULT_VOICE="Sonia_GB"
+VERBOSE=True
+DEFAULT_SPEED="1.1"
+POPPLER_PATH="C:/Program Files/poppler-24.08.0/Library/bin"
 ```
 
 # Usage
 Assuming that you have activated your `venv` and your working directory is the project's root directory ...
 
-## UI
-Start the UI with:
-`python app.py`
+## Run with CLI interface
+`python create_audio.py my_little_pony.txt --voice Sonia_GB --speed 1.2`
 
-### Sample the voice options
-- Set `Process` to `sample_voice`
-- Choose your `Voice`
-- Hit `Generate`
+## Choose a voice
+```python
+import echo.constants as c
+import echo.core as core
+import pprint
 
-### Generate MP3 Files
-- Use `<Input File>` File Picker to select your input data (text or pdf)
-- Set your `Process` (basically `<input_format>_to_<output_format>`)
-- If generating an MP3 file, you can specify the album front cover by selecting your desired image file with the `<MP3 Icon>` File Picker
-- Choose a `Voice`
-- If you are converting a pdf to text, you can specify a page range
-- Hit `Generate`
+# to see the list of voices
+pprint([x for x in c.voice_lookups])
 
-## More Granular functionality
+# to generate a 10 second sample recording
+playback_speed = 1
+core.play_mp3_clip("Steffan_US", speed=playback_speed)
+```
+
+## Convert a pdf, epub, or text file to an MP3
+```python
+import echo.core as core
+
+mp3_meta = {
+    "author": "An Author",
+    "image_path": "resources/images/singapore.jpg",
+    "title": "A Great Book",
+}
+
+
+core.file_to_mp3(
+    "resources/your_book.pdf", # or .txt or .epub file
+    mp3_meta=mp3_meta,
+    voice="Sonia_GB",
+    speed=1.5
+)
+# -> resources/your_book.mp3
+```
+
+## Extract text data
+
 ### Strip out Gutenberg pre and post amble
 ```python
 import echo.extractors.text as t
@@ -61,9 +78,10 @@ t.extract_gutenberg_data("samples/abridged_virgil_from_gutenberg.txt")
 ```python
 import echo.extractors.pdfs as p
 
-p.extract_text_pages("samples/cybernetics_one_page.pdf")
+p.extract_page_contents("samples/cybernetics_one_page.pdf", first_page=30, last_page=30, content_types=["text"])
 # -> ['Note: As a reminder ...', 'The approach of ...', 'oppose this ominous...']
 ```
+
 ### EPUB to text file
 ```python
 import echo.extractors.misc as m
@@ -73,13 +91,8 @@ m.extract_epub_text("samples/critique_pure_reason-kant.epub")
 ```
 ### Text to mp3
 ```python
-import echo.mp3_generators as t
-import echo.mp3_utils as mp
+import echo.core as core
 
-mp3_file = t.text_to_mp3("Hello friend, you look excellent today!", "affirmation.mp3", voice="Sonia_GB")
-mp.add_front_cover(mp3_file, "samples/cow.jpg") # https://cyfairanimalhospital.com/cows/cow-facts/
-# Creates affirmation.mp3 file in project root
-
-# or create from a text file
-mp3_file = file_to_mp3("samples/sample.txt", voice="Sonia_GB")
+mp3_file = core.text_to_mp3("Hello friend, you look excellent today!", "affirmation.mp3", voice="Sonia_GB")
+# -> affirmation.mp3
 ```

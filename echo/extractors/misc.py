@@ -18,7 +18,3 @@ def extract_epub_texts(epub_path: str) -> list[str]:
             soup = BeautifulSoup(item.content, "html.parser")
             text_content.append(soup.get_text())
     return text_content
-
-
-# file_path = 'samples/critique_pure_reason-kant.epub'
-# contents = extract_epub_texts(file_path)

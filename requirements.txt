@@ -1,10 +1,9 @@
+python-dotenv  # environment variables
 edge-tts  # mp3 generation
-mutagen   # mp3 generation
-pymupdf
-python-dotenv
-EbookLib   # epub handling
-beautifulsoup4  # epub and html handling
-requests
+mutagen   # mp3 editting
+pymupdf   # pdf parsing
+EbookLib   # epub parsing
+beautifulsoup4  # epub and html parsing
 pytesseract  # ocr for pdfs
 pdf2image  # ocr for pdfs
 opencv-python-headless  # ocr for pdfs

@@ -85,12 +85,9 @@ def smooth_pdf_for_audio(pages: list[dict]) -> str:
     return _smooth
 
 
-def smooth_gutenburg_for_audio(text: str) -> str:
-    x = ITALICS_START.sub(lambda x: x.group(1), text)
-    x = ITALICS_END.sub(lambda x: x.group(1), x)
-    x = PAGE_NUM.sub("", x)
-    x = x.replace("—", " ").replace("--", " ")
-    x = x.replace("\n\n", "\r")
-    x = x.replace("\n", " ")
-    x = x.replace("\r", "\n\n")
-    return x
+def smooth_epub_for_audio(epub_content: list[str]) -> str:
+    _smooth = ""
+    for _content in epub_content:
+        text = format_for_audio(_content)
+        _smooth += text + ("\n" if SENTENCE_END.match(text[-10:]) else " ")
+    return _smooth

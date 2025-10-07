@@ -20,7 +20,7 @@ def play_mp3_clip(voice: str, speed: float = 1):
     os.startfile(str(mp3_path.absolute()))
 
 
-def _convert_to_text(input_path: Path, configs: dict = {}) -> Path:
+def convert_to_text(input_path: Path, configs: dict = {}) -> str:
     """Converts files from various formats (pdf, )
 
     Args:
@@ -31,19 +31,17 @@ def _convert_to_text(input_path: Path, configs: dict = {}) -> Path:
         str: text contents of the input file
     """
 
-    # TODO do I need to lower case the suffix?  TXT vs txt
     match input_path.suffix:
-        case ".txt":  # | .TXT ... etc.
+        case ".txt":
             source = None  # TODO txt.text_source(input_path)
             if source == "gutenberg":
                 log.info(f"Cleaning gutenberg file: {input_path}")
                 x = txt.extract_gutenberg_data(input_path)
-                cln.smooth_gutenburg_for_audio(x["contents"])
-                return x["contents"]
+                return cln.format_for_audio(x["contents"])
             else:
                 with open(input_path, "r", encoding="utf-8") as fp:
                     return fp.read()
-        case ".pdf":  # TODO is the '.' in the suffix?
+        case ".pdf":
             log.info(f"Converting PDF {input_path} to text")
             p0 = configs.get("first_page", 0)
             p1 = configs.get("last_page", 9999)
@@ -51,7 +49,8 @@ def _convert_to_text(input_path: Path, configs: dict = {}) -> Path:
             return cln.smooth_pdf_for_audio(pages)
         case ".epub":
             log.info(f"Converting EPUB {input_path} to text")
-            return eem.extract_epub_texts(input_path)
+            texts = eem.extract_epub_texts(input_path)
+            return cln.smooth_epub_for_audio(texts)
         case other_suffix:
             raise NotImplementedError(f"Echo does not support {other_suffix} files!")
 
@@ -83,7 +82,7 @@ def file_to_mp3(
     else:
         mp3_path = Path(mp3_path)
 
-    _text = _convert_to_text(file_path, parser_configs)
+    _text = convert_to_text(file_path, parser_configs)
     tts.text_to_mp3(_text, mp3_path, voice=voice, speed=speed)
 
     if mp3_meta:

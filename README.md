@@ -29,7 +29,9 @@ POPPLER_PATH="C:/Program Files/poppler-24.08.0/Library/bin"
 Assuming that you have activated your `venv` and your working directory is the project's root directory ...
 
 ## Run with CLI interface
-`python create_audio.py my_little_pony.txt --voice Sonia_GB --speed 1.2`
+`python create_audio.py my_little_pony.txt`
+`python create_audio.py my_little_pony.txt -o my_little_pony.mp3 -v Eric_US -s 1.75`
+`python create_audio.py my_little_pony.txt --meta '{"author": "An Author", "image_path": "pony.jpg", "title": "A Great Book"}'`
 
 ## Choose a voice
 ```python

@@ -1,13 +1,12 @@
 import logging
 import mimetypes
-
-from pathlib import Path
-import subprocess
 import shutil
+from pathlib import Path
 
+from mutagen.easyid3 import EasyID3
 from mutagen.id3 import APIC, ID3, error
 from mutagen.mp3 import MP3
-from mutagen.easyid3 import EasyID3
+from pydub import AudioSegment
 
 log = logging.getLogger(__name__)
 
@@ -59,32 +58,26 @@ def add_meta_fields(mp3_path: Path, image_path: Path = None, title: str = None, 
         log.error(f"An error occurred when attaching album art: {e}")
 
 
-def _merge_with_ffmpeg(mp3_files: list[str], output_path: str):
-    input_files = "|".join(mp3_files)
-    command = f'ffmpeg -i "concat:{input_files}" -acodec copy {output_path}'
+def merge_audio_files(mp3s_dir: Path, output_path: Path, delete_after: bool = True) -> bool:
 
-    subprocess.run(command, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, shell=True, check=True)
+    paths = sorted(mp3s_dir.glob("*.mp3"))
 
+    log.info(f"Merging {len(paths)} audio file(s)...")
 
-def merge_mp3s(mp3s_path: Path, output_path: Path, delete_after: bool = True):
+    merged_audio = AudioSegment.empty()
+    for path in paths:
+        try:
+            merged_audio += AudioSegment.from_file(path, format=path.suffix.lstrip("."))
+        except Exception as e:
+            print(f"Error processing {path}: {str(e)}")
 
-    def _merge_mp3s(files: list[str], i: int, _prev: str) -> str:
-        _out = str((mp3s_path / f"temp_{str(i).zfill(4)}.mp3").absolute())
-        if _prev:
-            files = [_prev] + files
-        _merge_with_ffmpeg(files, _out)
-        return _out
+    try:
+        log.debug(f"\nExporting to: {output_path}")
+        merged_audio.export(output_path, format="mp3")
+        log.info(f"Created {output_path}\nTotal duration: {len(merged_audio) / 1000:.2f} seconds")
+    except Exception as e:
+        log.error(f"Error exporting merged file: {str(e)}")
 
-    files, i, _prev = [], 0, None
-    for file in sorted(mp3s_path.glob("*.mp3")):
-        files.append(str(file.absolute()))
-        if len(files) == 8:
-            _temp_out = _merge_mp3s(files, i, _prev)
-            files, i, _prev = [], i + 1, _temp_out
-
-    if files:
-        _temp_out = _merge_mp3s(files, i, _prev)
-
-    shutil.move(_temp_out, output_path)
     if delete_after:
-        shutil.rmtree(mp3s_path)
+        shutil.rmtree(mp3s_dir)
+    return True

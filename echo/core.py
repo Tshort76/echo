@@ -7,13 +7,13 @@ import echo.extractors.text as txt
 import echo.extractors.misc as eem
 import echo.audio.mp3_utils as mp3z
 import echo.audio.tts as tts
-import echo.clean as tc
+import echo.clean as cln
 
 log = logging.getLogger(__name__)
 
 
 def play_mp3_clip(voice: str, speed: float = 1):
-    mp3_path = "resources/output/sample.mp3"
+    mp3_path = "resources/outputs/sample.mp3"
     if os.path.exists(mp3_path):
         os.remove(mp3_path)
     mp3_path = file_to_mp3("resources/demo_data/sample.txt", mp3_path, voice=voice, speed=speed)
@@ -36,18 +36,21 @@ def _convert_to_text(input_path: Path, configs: dict = {}) -> Path:
         case ".txt":  # | .TXT ... etc.
             source = None  # TODO txt.text_source(input_path)
             if source == "gutenberg":
+                log.info(f"Cleaning gutenberg file: {input_path}")
                 x = txt.extract_gutenberg_data(input_path)
-                tc.smooth_gutenburg_for_audio(x["contents"])
+                cln.smooth_gutenburg_for_audio(x["contents"])
                 return x["contents"]
             else:
-                with open(input_path, "r") as fp:
+                with open(input_path, "r", encoding="utf-8") as fp:
                     return fp.read()
         case ".pdf":  # TODO is the '.' in the suffix?
+            log.info(f"Converting PDF {input_path} to text")
             p0 = configs.get("first_page", 0)
             p1 = configs.get("last_page", 9999)
             pages = pdfz.extract_page_contents(input_path, first_page=p0, last_page=p1, content_types=["text"])
-            return tc.smooth_pdf_for_audio(pages)
+            return cln.smooth_pdf_for_audio(pages)
         case ".epub":
+            log.info(f"Converting EPUB {input_path} to text")
             return eem.extract_epub_texts(input_path)
         case other_suffix:
             raise NotImplementedError(f"Echo does not support {other_suffix} files!")
@@ -87,6 +90,3 @@ def file_to_mp3(
         mp3z.add_meta_fields(mp3_path, **mp3_meta)
 
     return mp3_path
-
-
-# TODO update README

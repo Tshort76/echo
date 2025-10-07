@@ -28,7 +28,7 @@ def is_in_ipython_env():
     try:
         in_ipython = __IPYTHON__ is not None
         if in_ipython:
-            log.debug("In an Ipython environment, will make a synchronous TTS call")
+            log.warning("In an Ipython environment, will make a synchronous TTS call")
         return in_ipython
     except NameError:
         return False
@@ -75,10 +75,10 @@ def to_chunks(text: str, max_chars: int = ec.CHUNK_SIZE) -> list[str]:
 
 async def _distributed_text_to_mp3(text: str, output_file: str, voice: str, rate: str):
 
-    log.debug(f"Processing text with up to {ec.MAX_THREADS} concurrent threads")
+    log.info(f"Performing Text to Speech with up to {ec.MAX_THREADS} concurrent threads")
     total_chars = len(text)
     chunks = to_chunks(text)
-    log.debug(f"Split text into {len(chunks)} chunks")
+    log.info(f"Split text into {len(chunks)} chunks")
 
     output_path = Path(output_file)
     chunks_dir = output_path.parent / f"{output_path.stem}_chunks"
@@ -101,8 +101,8 @@ async def _distributed_text_to_mp3(text: str, output_file: str, voice: str, rate
     tasks = [_process_chunk(i, chunk) for i, chunk in enumerate(chunks)]
     await asyncio.gather(*tasks)
 
-    log.debug(f"All chunks processed, creating final mp3 file at {output_path}")
-    mp3.merge_mp3s(chunks_dir, output_path)
+    log.info(f"All chunks processed, creating final mp3 file at {output_path}")
+    mp3.merge_audio_files(chunks_dir, output_path)
 
 
 async def _text_to_mp3_async(text: str, mp3_path: str, tts_voice: str, rate: str):
@@ -110,7 +110,7 @@ async def _text_to_mp3_async(text: str, mp3_path: str, tts_voice: str, rate: str
 
 
 def _text_to_mp3_sync(text: str, mp3_path: str, tts_voice: str, rate: str):
-    log.debug(f"Making a single TTS request for {mp3_path}")
+    log.info(f"Using a single TTS batch request for {mp3_path}")
     x = edge_tts.Communicate(text, tts_voice, rate=rate)
     x.save_sync(mp3_path)
 
@@ -128,7 +128,7 @@ def text_to_mp3(text: str, mp3_path: str, voice: str = "Sonia_GB", speed: float 
     t0 = time.perf_counter()
     voice_id = ec.voice_lookups.get(voice, voice)
     rate = _speed_as_rate(speed)
-    log.info(f"\nmp3_path: {mp3_path}\nvoice: {voice_id} , rate: {rate}")
+    log.info(f"Running Text to Speech with parameters:\nmp3_path: {mp3_path}\nvoice: {voice_id} , rate: {rate}")
     if len(text) < ec.CHUNK_SIZE or is_in_ipython_env():
         _text_to_mp3_sync(text, mp3_path, voice_id, rate)
     else:

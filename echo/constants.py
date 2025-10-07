@@ -78,10 +78,11 @@ def _get_env_number(env_key: str, default_: int) -> int:
 
 
 VOICES = list(voice_lookups.keys())
+OUTPUT_FOLDER = os.environ.get("DEFAULT_OUTPUT_FOLDER", "")
 DEFAULT_VOICE = os.environ.get("DEFAULT_VOICE", "Sonia_GB")
 DEFAULT_PROCESS = os.environ.get("DEFAULT_PROCESS", Process.SAMPLE_VOICE)
 DEFAULT_SPEED = _get_env_number("DEFAULT_SPEED", 1)
-CHUNK_SIZE = _get_env_number("DEFAULT_CHUNK_SIZE", 8000)  # characters
+CHUNK_SIZE = _get_env_number("DEFAULT_CHUNK_SIZE", 8000)  # characters # TODO 8000
 MAX_THREADS = _get_env_number("DEFAULT_MAX_THREADS", 4)
 LOG_FORMAT = "%(asctime)s.%(msecs)03d %(filename)s (%(levelname)s):\t%(message)s"
 LOG_DATE_FORMAT = "%H:%M:%S"

@@ -105,13 +105,13 @@ async def _distributed_text_to_mp3(text: str, output_file: str, voice: str, rate
     mp3.merge_audio_files(chunks_dir, output_path)
 
 
-async def _text_to_mp3_async(text: str, mp3_path: str, tts_voice: str, rate: str):
-    await _distributed_text_to_mp3(text, mp3_path, tts_voice, rate)
+async def _text_to_mp3_async(text: str, mp3_path: str, voice: str, rate: str):
+    await _distributed_text_to_mp3(text, mp3_path, voice, rate)
 
 
-def _text_to_mp3_sync(text: str, mp3_path: str, tts_voice: str, rate: str):
+def _text_to_mp3_sync(text: str, mp3_path: str, voice: str, rate: str):
     log.info(f"Using a single TTS batch request for {mp3_path}")
-    x = edge_tts.Communicate(text, tts_voice, rate=rate)
+    x = edge_tts.Communicate(text, voice, rate=rate)
     x.save_sync(mp3_path)
 
 

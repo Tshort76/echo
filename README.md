@@ -19,7 +19,7 @@ Add the binaries directory, typically `C:\Program Files\Tesseract-OCR`, to your 
 
 ## Example .env file
 ```
-DEFAULT_VOICE="Sonia_GB"
+DEFAULT_VOICE="en-GB-SoniaNeural"
 VERBOSE=True
 DEFAULT_SPEED="1.1"
 POPPLER_PATH="C:/Program Files/poppler-24.08.0/Library/bin"
@@ -33,18 +33,28 @@ Assuming that you have activated your `venv` and your working directory is the p
 `python create_audio.py my_little_pony.txt -o my_little_pony.mp3 -v Eric_US -s 1.75`
 `python create_audio.py my_little_pony.txt --meta '{"author": "An Author", "image_path": "pony.jpg", "title": "A Great Book"}'`
 
-## Choose a voice
+## Choosing a voice ... that speaks to you ;)
 ```python
-import echo.constants as c
 import echo.core as core
-import pprint
+import echo.audio.voices as vc
 
-# to see the list of voices
-pprint([x for x in c.voice_lookups])
+# query edge-tts server for available voices
+voices = await vc.find_voices(use_cache=False)
+# -> ['af-ZA-AdriNeural,af,ZA,Female,"Friendly,Positive"',
+#     'af-ZA-WillemNeural,af,ZA,Male,"Friendly,Positive"',
+#     'am-ET-AmehaNeural,am,ET,Male,"Friendly,Positive"', ...]
 
-# to generate a 10 second sample recording
-playback_speed = 1
-core.play_mp3_clip("Steffan_US", speed=playback_speed)
+# update voices cache file (resources/voices.csv)
+await vc.update_voice_cache_file()
+
+# Find all female, English voices with a Great British accent
+await vc.find_voices(lang="en", gender="Female", tag="GB")
+# ['en-GB-LibbyNeural,en,GB,Female,"Friendly,Positive"',
+#  'en-GB-MaisieNeural,en,GB,Female,"Friendly,Positive"',
+#  'en-GB-SoniaNeural,en,GB,Female,"Friendly,Positive"']
+
+# to generate and play a 10 second sample recording
+core.play_mp3_clip("en-GB-SoniaNeural", speed=1)
 ```
 
 ## Convert a pdf, epub, or text file to an MP3
@@ -61,7 +71,7 @@ mp3_meta = {
 core.file_to_mp3(
     "resources/your_book.pdf", # or .txt or .epub file
     mp3_meta=mp3_meta,
-    voice="Sonia_GB",
+    voice="en-GB-SoniaNeural",
     speed=1.5
 )
 # -> resources/your_book.mp3
@@ -95,6 +105,6 @@ m.extract_epub_text("samples/critique_pure_reason-kant.epub")
 ```python
 import echo.core as core
 
-mp3_file = core.text_to_mp3("Hello friend, you look excellent today!", "affirmation.mp3", voice="Sonia_GB")
+mp3_file = core.text_to_mp3("Hello friend, you look excellent today!", "affirmation.mp3", voice="en-GB-SoniaNeural")
 # -> affirmation.mp3
 ```

@@ -62,7 +62,6 @@ if __name__ == "__main__":
         dest="voice",
         type=str,
         default=ec.DEFAULT_VOICE,
-        choices=ec.VOICES,
         help=f"The name of the TTS voice to use. (Default: {ec.DEFAULT_VOICE})",
     )
 

@@ -60,8 +60,8 @@ def file_to_mp3(
     file_path: str,
     mp3_path: str = None,
     mp3_meta: dict = {},
-    voice: str = "Sonia_GB",
-    speed: float = 1,
+    voice: str = None,
+    speed: float = None,
     parser_configs: dict = {},
 ) -> Path:
     """Generate an audio file from a text file
@@ -70,9 +70,9 @@ def file_to_mp3(
         file_path (str): path to text/pdf/epub file
         mp3_path (str, optional): path for the resulting mp3 file
         mp3_meta (dict, optional): meta data to attach to the mp3
-        voice (str): Voice for the narrator
-        speed (float): playback speed multiplier
-        parser_configs (dict): configurations for parsing
+        voice (str, optional): Voice for the narrator
+        speed (float, optional): playback speed multiplier
+        parser_configs (dict, optional): configurations for parsing
 
     Returns:
         str: File path to the resulting audio file

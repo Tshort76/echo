@@ -115,24 +115,24 @@ def _text_to_mp3_sync(text: str, mp3_path: str, tts_voice: str, rate: str):
     x.save_sync(mp3_path)
 
 
-def text_to_mp3(text: str, mp3_path: str, voice: str = "Sonia_GB", speed: float = 1):
+def text_to_mp3(text: str, mp3_path: str, voice: str = None, speed: float = None):
     """Leverages a TTS engine (i.e. Edge-tts) to generate an MP3 audio file for text
 
     Args:
         text (str): The text to be converted into audio data
         mp3_path (str): file path to which the resulting audio data will be written
-        voice (str): voice to use for the dictation (see echo.constants)
-        speed (float, optional): playback speed adjustment multiplier. Defaults to "1".
+        voice (str): voice to use for the dictation. Defaults to None
+        speed (float, optional): playback speed adjustment multiplier. Defaults to None.
 
     """
     t0 = time.perf_counter()
-    voice_id = ec.voice_lookups.get(voice, voice)
-    rate = _speed_as_rate(speed)
-    log.info(f"Running Text to Speech with parameters:\nmp3_path: {mp3_path}\nvoice: {voice_id} , rate: {rate}")
+    rate = _speed_as_rate(speed or ec.DEFAULT_SPEED)
+    voice = voice or ec.DEFAULT_VOICE
+    log.info(f"Running Text to Speech with parameters:\nmp3_path: {mp3_path}\nvoice: {voice} , rate: {rate}")
     if len(text) < ec.CHUNK_SIZE or is_in_ipython_env():
-        _text_to_mp3_sync(text, mp3_path, voice_id, rate)
+        _text_to_mp3_sync(text, mp3_path, voice, rate)
     else:
-        return asyncio.run(_text_to_mp3_async(text, mp3_path, voice_id, rate))
+        return asyncio.run(_text_to_mp3_async(text, mp3_path, voice, rate))
 
     t1 = time.perf_counter()
     log.info(f"{mp3_path} created in {(t1 - t0)/60:.2f} minutes")

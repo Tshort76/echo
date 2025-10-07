@@ -9,4 +9,5 @@ scripts/
 __pypackages__/
 resources/*
 !resources/demo_data/
+!resources/voices.csv
 *.ipynb

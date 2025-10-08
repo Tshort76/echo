@@ -82,8 +82,15 @@ core.file_to_mp3(
 ### Strip out Gutenberg pre and post amble
 ```python
 import echo.extractors.text as t
-t.extract_gutenberg_data("samples/abridged_virgil_from_gutenberg.txt")
-# -> {'title': 'The Bucolics and Eclogues',  'author': 'Virgil', 'contents': '37 BC\n\nTHE ECLOGUES ...' 
+from pathlib import Path
+
+input_path = Path(f"abridged_virgil_from_gutenberg.txt")
+
+with open(input_path, "r", encoding="utf-8") as fp:
+    bloated_text = fp.read()
+
+if t.is_gutenberg_text(bloated_text):
+    text = t.strip_gutenberg_bloat(bloated_text)
 ```
 
 ### PDF to text file
@@ -99,7 +106,7 @@ p.extract_page_contents("samples/cybernetics_one_page.pdf", first_page=30, last_
 import echo.extractors.misc as m
 
 m.extract_epub_text("samples/critique_pure_reason-kant.epub")
-# -> ['\n\n\nThe Project ...', '\n\n\nThe Project ...', ...]
+# -> '\n\n\nThe Project ...'
 ```
 ### Text to mp3
 ```python

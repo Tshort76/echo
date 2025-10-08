@@ -85,9 +85,9 @@ def smooth_pdf_for_audio(pages: list[dict]) -> str:
     return _smooth
 
 
-def smooth_epub_for_audio(epub_content: list[str]) -> str:
-    _smooth = ""
-    for _content in epub_content:
-        text = format_for_audio(_content)
-        _smooth += text + ("\n" if SENTENCE_END.match(text[-10:]) else " ")
-    return _smooth
+# def smooth_epub_for_audio(epub_content: list[str]) -> str:
+#     _smooth = ""
+#     for _content in epub_content:
+#         text = format_for_audio(_content)
+#         _smooth += text + ("\n" if SENTENCE_END.match(text[-10:]) else " ")
+#     return _smooth

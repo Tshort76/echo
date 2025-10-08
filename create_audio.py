@@ -55,7 +55,6 @@ if __name__ == "__main__":
         help=f"The filepath for the resulting audio file",
     )
 
-    # TODO add support for directly using 'en-US-AriaNeural' format
     parser.add_argument(
         "-v",
         "--voice",

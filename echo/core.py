@@ -33,14 +33,14 @@ def convert_to_text(input_path: Path, configs: dict = {}) -> str:
 
     match input_path.suffix:
         case ".txt":
-            source = None  # TODO txt.text_source(input_path)
-            if source == "gutenberg":
-                log.info(f"Cleaning gutenberg file: {input_path}")
-                x = txt.extract_gutenberg_data(input_path)
-                return cln.format_for_audio(x["contents"])
+            with open(input_path, "r", encoding="utf-8") as fp:
+                text = fp.read()
+
+            if txt.is_gutenberg_text(text):
+                text = txt.strip_gutenberg_bloat(text)
+                return cln.format_for_audio(text)
             else:
-                with open(input_path, "r", encoding="utf-8") as fp:
-                    return fp.read()
+                return text
         case ".pdf":
             log.info(f"Converting PDF {input_path} to text")
             p0 = configs.get("first_page", 0)
@@ -49,8 +49,10 @@ def convert_to_text(input_path: Path, configs: dict = {}) -> str:
             return cln.smooth_pdf_for_audio(pages)
         case ".epub":
             log.info(f"Converting EPUB {input_path} to text")
-            texts = eem.extract_epub_texts(input_path)
-            return cln.smooth_epub_for_audio(texts)
+            text = eem.extract_epub_text(input_path)
+            if txt.is_gutenberg_text(text):
+                text = txt.strip_gutenberg_bloat(text)
+            return cln.format_for_audio(text)
         case other_suffix:
             raise NotImplementedError(f"Echo does not support {other_suffix} files!")
 

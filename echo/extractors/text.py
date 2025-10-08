@@ -6,56 +6,16 @@ log = logging.getLogger(__name__)
 ALPHANUMERICS = re.compile(r"[\W]+", re.UNICODE)
 
 
-def extract_gutenberg_data(file_path: str) -> dict:
-    """
-    Parses a Project Gutenberg text file to extract the title, author, and book contents.
+def strip_gutenberg_bloat(text: str) -> str:
+    x00 = text.index("*** START OF")
+    x0 = text.index("\n\n", x00)
+    x1 = text.rindex("*** END OF")
+    log.info(f"Stripped {x0+(len(text)-x1)} characters of Project Gutenberg legalese")
+    return text[x0:x1]
 
-    Args:
-        file_path (str): Path to the Gutenberg text file.
 
-    Returns:
-        dict: A dictionary with keys 'title', 'author', and 'contents'.
-    """
-    title = None
-    author = None
-    contents = []
-
-    with open(file_path, "r", encoding="utf-8") as file:
-        lines = file.readlines()
-
-    # Flags to track the start and end of the book contents
-    in_contents = False
-    contents_start = "*** START OF"
-    contents_end = "*** END OF"
-
-    for line in lines:
-        stripped_line = line.strip()
-
-        if not in_contents:
-            # Try to extract the title
-            if not title and stripped_line.startswith("Title:"):
-                title = stripped_line[6:].strip()
-
-            # Try to extract the author
-            if not author and stripped_line.startswith("Author:"):
-                author = stripped_line[7:].strip()
-
-            # Check for the start of the contents
-            if contents_start in stripped_line:
-                in_contents = True
-
-        else:
-            if contents_end in stripped_line:
-                break
-
-            # Append lines to contents
-            contents.append(line)
-
-    # Join contents into a single string
-    log.debug(f"Parsed {len(contents)} lines of text from {file_path}")
-    book_contents = "".join(contents).strip()
-
-    return {"title": title, "author": author, "contents": book_contents}
+def is_gutenberg_text(text: str) -> bool:
+    return text.count("Project Gutenberg") > 5
 
 
 def _fmt_str(raw_title: str) -> str:

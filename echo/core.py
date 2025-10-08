@@ -63,6 +63,7 @@ def file_to_mp3(
     mp3_meta: dict = {},
     voice: str = None,
     speed: float = None,
+    write_text_file: bool = False,
     parser_configs: dict = {},
 ) -> Path:
     """Generate an audio file from a text file
@@ -73,21 +74,25 @@ def file_to_mp3(
         mp3_meta (dict, optional): meta data to attach to the mp3
         voice (str, optional): Voice for the narrator
         speed (float, optional): playback speed multiplier
+        write_text_file (bool, optional): write intermediate text to a txt file. Defaults to False
         parser_configs (dict, optional): configurations for parsing
 
     Returns:
-        str: File path to the resulting audio file
+        Path: File path to the resulting audio file
     """
     file_path = Path(file_path)
     if mp3_path is None:
-        mp3_path = file_path.with_suffix(".mp3")
+        _mp3_path = file_path.with_suffix(".mp3")
     else:
-        mp3_path = Path(mp3_path)
+        _mp3_path = Path(mp3_path)
 
     _text = convert_to_text(file_path, parser_configs)
-    tts.text_to_mp3(_text, mp3_path, voice=voice, speed=speed)
+    if write_text_file:
+        with open(_mp3_path.with_suffix(".txt"), "w") as fp:
+            fp.write(_text)
+    tts.text_to_mp3(_text, _mp3_path, voice=voice, speed=speed)
 
     if mp3_meta:
-        mp3z.add_meta_fields(mp3_path, **mp3_meta)
+        mp3z.add_meta_fields(_mp3_path, **mp3_meta)
 
-    return mp3_path
+    return _mp3_path

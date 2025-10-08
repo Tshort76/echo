@@ -82,12 +82,14 @@ if __name__ == "__main__":
         help="Meta data for the mp3 file. (Default: {})",
     )
 
+    parser.add_argument("--save", action="store_true", help="Save intermediate text file")
+
     args = parser.parse_args()
 
     _mp3_path = args.output or _output_path(args.file_path)
 
     print(
-        f"FilePath: {args.file_path}\nVoice: {args.voice}\nSpeed: {args.speed}\nOut: {_mp3_path}\nMeta:{args.mp3_meta}\n--------------------\n"
+        f"FilePath: {args.file_path}\nVoice: {args.voice}\nSpeed: {args.speed}\nOut: {_mp3_path}\nSave: {args.save}\nMeta:{args.mp3_meta}\n--------------------\n"
     )
 
     output_path = core.file_to_mp3(
@@ -96,7 +98,8 @@ if __name__ == "__main__":
         mp3_meta=args.mp3_meta,
         voice=args.voice,
         speed=args.speed,
+        write_text_file=args.save,
         parser_configs={},
     )
 
-    print(f"Wrote MP3 to {output_path}")
+    print("Wrote MP3" + (" and txt file" if args.save else "") + f" to {output_path}")

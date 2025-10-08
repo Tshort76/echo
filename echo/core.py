@@ -88,7 +88,7 @@ def file_to_mp3(
 
     _text = convert_to_text(file_path, parser_configs)
     if write_text_file:
-        with open(_mp3_path.with_suffix(".txt"), "w") as fp:
+        with open(_mp3_path.with_suffix(".txt"), "w", encoding="utf-8") as fp:
             fp.write(_text)
     tts.text_to_mp3(_text, _mp3_path, voice=voice, speed=speed)
 

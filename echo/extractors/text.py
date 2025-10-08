@@ -1,5 +1,6 @@
 import re
 import logging
+import echo.constants as ec
 
 log = logging.getLogger(__name__)
 
@@ -28,3 +29,42 @@ def _fmt_str(raw_title: str) -> str:
 
 def name_for_file(contents: dict, ext: str = "mp3") -> str:
     return f"{_fmt_str(contents['title'])}-{_fmt_str(contents['author'])}.{ext}"
+
+
+def to_chunks(text: str, max_chars: int = ec.CHUNK_SIZE) -> list[str]:
+    # Remove excessive whitespace
+    ec.EMPTY_LINES.sub("\n\n", text)
+    ec.REDUNDANT_SPACES.sub(" ", text)
+
+    chunks = []
+    current_chunk = ""
+
+    # Split by paragraphs first
+    paragraphs = text.split("\n\n")
+
+    for para in paragraphs:
+        para = para.strip()
+        if not para:
+            continue
+
+        # If adding this paragraph exceeds max_chars, process current chunk
+        if len(current_chunk) + len(para) + 2 > max_chars and current_chunk:
+            chunks.append(current_chunk.strip())
+            current_chunk = ""
+
+        # If a single paragraph is too long, split by sentences
+        if len(para) > max_chars:
+            sentences = ec.SENTENCES.split(para)
+            for sentence in sentences:
+                if len(current_chunk) + len(sentence) + 1 > max_chars and current_chunk:
+                    chunks.append(current_chunk.strip())
+                    current_chunk = ""
+                current_chunk += sentence + " "
+        else:
+            current_chunk += para + "\n\n"
+
+    # Add the last chunk
+    if current_chunk.strip():
+        chunks.append(current_chunk.strip())
+
+    return chunks

@@ -7,6 +7,7 @@ import edge_tts  # https://github.com/rany2/edge-tts/tree/master
 
 import echo.constants as ec
 import echo.audio.mp3_utils as mp3
+import echo.extractors.text as t
 
 log = logging.getLogger(__name__)
 
@@ -34,50 +35,11 @@ def is_in_ipython_env():
         return False
 
 
-def to_chunks(text: str, max_chars: int = ec.CHUNK_SIZE) -> list[str]:
-    # Remove excessive whitespace
-    ec.EMPTY_LINES.sub("\n\n", text)
-    ec.REDUNDANT_SPACES.sub(" ", text)
-
-    chunks = []
-    current_chunk = ""
-
-    # Split by paragraphs first
-    paragraphs = text.split("\n\n")
-
-    for para in paragraphs:
-        para = para.strip()
-        if not para:
-            continue
-
-        # If adding this paragraph exceeds max_chars, process current chunk
-        if len(current_chunk) + len(para) + 2 > max_chars and current_chunk:
-            chunks.append(current_chunk.strip())
-            current_chunk = ""
-
-        # If a single paragraph is too long, split by sentences
-        if len(para) > max_chars:
-            sentences = ec.SENTENCES.split(para)
-            for sentence in sentences:
-                if len(current_chunk) + len(sentence) + 1 > max_chars and current_chunk:
-                    chunks.append(current_chunk.strip())
-                    current_chunk = ""
-                current_chunk += sentence + " "
-        else:
-            current_chunk += para + "\n\n"
-
-    # Add the last chunk
-    if current_chunk.strip():
-        chunks.append(current_chunk.strip())
-
-    return chunks
-
-
 async def _distributed_text_to_mp3(text: str, output_file: str, voice: str, rate: str):
 
     log.info(f"Performing Text to Speech with up to {ec.MAX_THREADS} concurrent threads")
     total_chars = len(text)
-    chunks = to_chunks(text)
+    chunks = t.to_chunks(text)
     log.info(f"Split text into {len(chunks)} chunks")
 
     output_path = Path(output_file)

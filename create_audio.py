@@ -14,6 +14,8 @@ logging.basicConfig(
     stream=sys.stdout,
 )
 
+log = logging.getLogger(__name__)
+
 
 def _coerce_playback_speed(arg: str) -> str:
     "Convert a multiplier fraction such as 1.5 to the tts lib equivalent of '(+|-)X%'"
@@ -88,7 +90,7 @@ if __name__ == "__main__":
 
     _mp3_path = args.output or _output_path(args.file_path)
 
-    print(
+    log.info(
         f"FilePath: {args.file_path}\nVoice: {args.voice}\nSpeed: {args.speed}\nOut: {_mp3_path}\nSave: {args.save}\nMeta:{args.mp3_meta}\n--------------------\n"
     )
 
@@ -102,4 +104,4 @@ if __name__ == "__main__":
         parser_configs={},
     )
 
-    print("Wrote MP3" + (" and txt file" if args.save else "") + f" to {output_path}")
+    log.info("Wrote MP3" + (" and txt file" if args.save else "") + f" to {output_path}")

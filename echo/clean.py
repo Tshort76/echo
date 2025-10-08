@@ -1,5 +1,6 @@
 import re
 import logging
+from collections import Counter
 
 FIGURE = re.compile(r"^Figure\s+\d")
 FOOTNOTE_REF = re.compile(r"([^\d][;,.?!)])\d{1,2}(\s)")
@@ -50,7 +51,7 @@ def skip_headers(lines: list[str]) -> list[str]:
     return lines[1:]
 
 
-def format_for_audio(page_text: str) -> str:
+def _format_page_for_audio(page_text: str) -> str:
     if not page_text:
         return ""
     page_text = page_text.replace(" . . . ", " ")
@@ -80,14 +81,27 @@ def format_for_audio(page_text: str) -> str:
 def smooth_pdf_for_audio(pages: list[dict]) -> str:
     _smooth = ""
     for page in pages:
-        page_text = format_for_audio(page["text"])
+        page_text = _format_page_for_audio(page["text"])
         _smooth += page_text + ("\n" if SENTENCE_END.match(page_text[-10:]) else " ")
     return _smooth
 
 
-# def smooth_epub_for_audio(epub_content: list[str]) -> str:
-#     _smooth = ""
-#     for _content in epub_content:
-#         text = format_for_audio(_content)
-#         _smooth += text + ("\n" if SENTENCE_END.match(text[-10:]) else " ")
-#     return _smooth
+def format_for_audio(text: str) -> str:
+    x = ITALICS_START.sub(lambda x: x.group(1), text)
+    x = ITALICS_END.sub(lambda x: x.group(1), x)
+    x = PAGE_NUM.sub("", x)
+    x = x.replace("—", " ").replace("--", " ")
+    x = x.replace("\n\n", "\r")
+    x = x.replace("\n", " ")
+    x = x.replace("\r", "\n\n")
+    return x
+
+
+def remove_repeat_lines(text: str) -> str:
+    counts = Counter([l.strip()[0:120] for l in text.splitlines() if l.strip()])
+    redundant_lines = [k for (k, cnt) in counts.most_common(10) if cnt > 5]
+    log.info(f"Removing the following repeated lines: {'\n'.join(redundant_lines)}")
+
+    for rline in redundant_lines:
+        text = text.replace(rline, "")
+    return text

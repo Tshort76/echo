@@ -38,7 +38,9 @@ def convert_to_text(input_path: Path, configs: dict = {}) -> str:
 
             if txt.is_gutenberg_text(text):
                 text = txt.strip_gutenberg_bloat(text)
-                return cln.format_for_audio(text)
+                chunks = txt.to_chunks(text, 20000)
+                text = "\n".join(map(cln.format_for_audio, chunks))
+                return cln.remove_repeat_lines(text)
             else:
                 return text
         case ".pdf":
@@ -52,7 +54,9 @@ def convert_to_text(input_path: Path, configs: dict = {}) -> str:
             text = eem.extract_epub_text(input_path)
             if txt.is_gutenberg_text(text):
                 text = txt.strip_gutenberg_bloat(text)
-            return cln.format_for_audio(text)
+                chunks = txt.to_chunks(text, 20000)
+                text = "\n".join(map(cln.format_for_audio, chunks))
+            return cln.remove_repeat_lines(text)
         case other_suffix:
             raise NotImplementedError(f"Echo does not support {other_suffix} files!")
 

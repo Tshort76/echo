@@ -58,12 +58,11 @@ async def _distributed_text_to_mp3(text: str, output_file: str, voice: str, rate
             audio_files[i] = str(chunk_file)
 
             chars_processed += len(chunk)
-            log.debug(f"{(chars_processed / total_chars):.0%} complete")
+            log.info(f"Progress Report: {(chars_processed / total_chars):.0%}")
 
     tasks = [_process_chunk(i, chunk) for i, chunk in enumerate(chunks)]
     await asyncio.gather(*tasks)
 
-    log.info(f"All chunks processed, creating final mp3 file at {output_path}")
     mp3.merge_audio_files(chunks_dir, output_path)
 
 

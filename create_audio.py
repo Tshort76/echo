@@ -17,8 +17,7 @@ logging.basicConfig(
 log = logging.getLogger(__name__)
 
 
-def _coerce_playback_speed(arg: str) -> str:
-    "Convert a multiplier fraction such as 1.5 to the tts lib equivalent of '(+|-)X%'"
+def _coerce_playback_speed(arg: str) -> float:
     try:
         _rate = float(arg)
     except ValueError:

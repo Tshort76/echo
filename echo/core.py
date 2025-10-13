@@ -48,7 +48,7 @@ def convert_to_text(input_path: Path, configs: dict = {}) -> str:
             p0 = configs.get("first_page", 0)
             p1 = configs.get("last_page", 9999)
             pages = pdfz.extract_page_contents(input_path, first_page=p0, last_page=p1, content_types=["text"])
-            return cln.smooth_pdf_for_audio(pages)
+            return cln.simplify_pdf_for_audio(pages)
         case ".epub":
             log.info(f"Converting EPUB {input_path} to text")
             text = eem.extract_epub_text(input_path)

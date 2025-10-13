@@ -10,6 +10,7 @@ SENTENCE_END = re.compile(r".+[.!?]\s*$")
 ITALICS_START = re.compile(r"_(\w)")
 ITALICS_END = re.compile(r"(\w)_")
 PAGE_NUM = re.compile(r"\n\d{1,3}\.?\n")
+ROMAN_NUMERALS = re.compile(r"^\s*([IXV]{1,5}\.)")
 
 
 log = logging.getLogger(__name__)
@@ -78,7 +79,7 @@ def _format_page_for_audio(page_text: str) -> str:
     return cleaned
 
 
-def smooth_pdf_for_audio(pages: list[dict]) -> str:
+def simplify_pdf_for_audio(pages: list[dict]) -> str:
     _smooth = ""
     for page in pages:
         page_text = _format_page_for_audio(page["text"])
@@ -105,3 +106,10 @@ def remove_repeat_lines(text: str) -> str:
     for rline in redundant_lines:
         text = text.replace(rline, "")
     return text
+
+
+def simplify_gemini_for_audio(txt: str) -> str:
+    txt = txt.replace("*", "")
+    txt = txt.replace("#", "")
+    txt = ROMAN_NUMERALS.sub("", txt)
+    return txt

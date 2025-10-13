@@ -115,3 +115,27 @@ import echo.core as core
 mp3_file = core.text_to_mp3("Hello friend, you look excellent today!", "affirmation.mp3", voice="en-GB-SoniaNeural")
 # -> affirmation.mp3
 ```
+
+## Using Gemini Deep Research
+A small script, `deep_research_cli.py`, is available for automating the process of:
+1. Invoking Gemini Deep Research to research a topic
+2. Copying the output to a text file
+3. Generating an audio file
+
+### Setup
+First, you will need a Gemini API key, which should be stored in your environment as `GEMINI_API_KEY`.
+You will also need to install `google.generativeai`, which is absent from the requirements file since it is not a core part of echo's functionality
+
+### Running the program
+Then, for each topic of research, create a JSON file to configure the prompt and title:
+```json
+{
+    "name": "hospice",
+    "topic": "The history of the hospice industry in the United States."
+}
+```
+
+You can then invoke the script, passing the path to the JSON file:
+`python deep_research_cli.py /path/to/hospice_dr_config.json`
+
+The script will perform some simple prompt engineering and then run the 3 steps above.  There is work to be done to make this flow more non-dev friendly

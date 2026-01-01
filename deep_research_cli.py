@@ -4,14 +4,25 @@ import sys
 import time
 import json
 from pathlib import Path
+import logging
 
 import google.generativeai as genai
 from dotenv import load_dotenv
 
 import echo.core as echo
 import echo.clean as cln
+import echo.constants as ec
 
 load_dotenv()
+
+logging.basicConfig(
+    level=logging.INFO,
+    format=ec.LOG_FORMAT,
+    datefmt=ec.LOG_DATE_FORMAT,
+    stream=sys.stdout,
+)
+
+log = logging.getLogger(__name__)
 
 # Configuration
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
@@ -31,7 +42,7 @@ def initialize_gemini():
 
 
 def start_deep_research(prompt_config: dict) -> str:
-    print(f"Starting deep research on: {prompt_config['name']}")
+    log.info(f"Starting deep research on: {prompt_config['name']}")
 
     prompt = f"""Conduct a comprehensive deep research on the following topic:
     {prompt_config['topic']}
@@ -47,7 +58,7 @@ def start_deep_research(prompt_config: dict) -> str:
         if chunk.text:
             full_text += chunk.text
 
-    print("Deep research completed")
+    log.info("Deep research completed")
     return full_text
 
 
@@ -82,7 +93,8 @@ def strip_preamble_and_conclusion(text: str) -> str:
 
 
 def _write_to_file(content: str, topic_name: str = None) -> Path:
-    filename = f"{time.strftime('%Y%m%d')}_DR_{topic_name}.txt"
+    _prefix = "" if topic_name.startswith("20") else f"{time.strftime('%Y%m%d')}_DR_"
+    filename = f"{_prefix}{topic_name}.txt"
 
     file_path = OUTPUT_DIR / filename
     with open(file_path, "w", encoding="utf-8") as f:
@@ -93,31 +105,40 @@ def _write_to_file(content: str, topic_name: str = None) -> Path:
 
 def main():
     parser = argparse.ArgumentParser(description="Deep Research CLI - Research topics with Gemini and convert to audio")
-    parser.add_argument("topic_json", type=str, help="Path to meta file for the query")
+    parser.add_argument("file_path", type=str, help="Path to meta file for the query")
 
     args = parser.parse_args()
-    with open(args.topic_json, "r") as fp:
-        topic_config = json.load(fp)
+    fpath = Path(args.file_path)
+    topic_config, raw_response = None, None
+    with open(fpath, "r") as fp:
+        if fpath.suffix == ".txt":
+            log.debug("Txt file found, converting to MP3")
+            raw_response = fp.read()
+            _name = fpath.with_suffix("").name
+        else:
+            topic_config = json.load(fp)
+            _name = topic_config["name"]
 
-    try:
-        # Setup
-        setup_output_directory()
+    # Setup
+    setup_output_directory()
+
+    if topic_config:
+        log.debug("Deep Research Config found, calling gemini")
         initialize_gemini()
-
         raw_response = start_deep_research(topic_config)
-        cleaned = cln.simplify_gemini_for_audio(raw_response)
-        text_file = _write_to_file(cleaned, topic_config["name"])
-        mp3_file = echo.file_to_mp3(
-            text_file,
-            mp3_meta={"title": topic_config["name"], "author": "Gemini"},
-            voice="en-GB-SoniaNeural",
-            speed=1.5,
-        )
-        print(f"Success!  Created audio file: {mp3_file}")
+        _ = _write_to_file(raw_response, "raw_" + _name)
 
-    except Exception as e:
-        print(f"Error: {str(e)}", file=sys.stderr)
-        sys.exit(1)
+    log.debug("Formatting gemini output")
+    cleaned = cln.clean_gemini_contents(raw_response)
+    log.debug("Writing formatted output to file")
+    text_file = _write_to_file(cleaned, _name)
+    mp3_file = echo.file_to_mp3(
+        text_file,
+        mp3_meta={"title": _name, "author": "Gemini"},
+        voice="en-GB-SoniaNeural",
+        speed=1.5,
+    )
+    log.info(f"Success!  Created audio file: {mp3_file}")
 
 
 if __name__ == "__main__":

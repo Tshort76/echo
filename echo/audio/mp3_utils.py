@@ -26,36 +26,37 @@ def add_common_meta(mp3_path: Path, title: str = None, author: str = None) -> No
     audio.save(mp3_path)
 
 
+def _add_cover_art(mp3_path: Path, image_path: Path) -> None:
+    mp3 = MP3(mp3_path, ID3=ID3)
+
+    # Add ID3 tag if it doesn't exist
+    if not mp3.tags:
+        mp3.add_tags()
+
+    mime_type, _ = mimetypes.guess_type(image_path)
+
+    with open(image_path, "rb") as img:
+        mp3.tags.add(
+            APIC(
+                encoding=3,  # 3 is for UTF-8
+                mime=mime_type,
+                type=3,  # 3 is for the album front cover
+                desc="Cover",  # Description of the image
+                data=img.read(),  # Actual image data
+            )
+        )
+
+    mp3.save()
+    log.info(f"Added {image_path} to {mp3_path} as album art!")
+
+
 def add_meta_fields(mp3_path: Path, image_path: Path = None, title: str = None, author: str = None) -> None:
     "Embeds an image into an MP3 file as album art."
 
     if title or author:
         add_common_meta(mp3_path, title, author)
-
-    try:
-        mp3 = MP3(mp3_path, ID3=ID3)
-
-        # Add ID3 tag if it doesn't exist
-        if not mp3.tags:
-            mp3.add_tags()
-
-        mime_type, _ = mimetypes.guess_type(image_path)
-
-        with open(image_path, "rb") as img:
-            mp3.tags.add(
-                APIC(
-                    encoding=3,  # 3 is for UTF-8
-                    mime=mime_type,
-                    type=3,  # 3 is for the album front cover
-                    desc="Cover",  # Description of the image
-                    data=img.read(),  # Actual image data
-                )
-            )
-
-        mp3.save()
-        log.info(f"Added {image_path} to {mp3_path} as album art!")
-    except error as e:
-        log.error(f"An error occurred when attaching album art: {e}")
+    if image_path:
+        _add_cover_art(mp3_path, image_path)
 
 
 def merge_audio_files(mp3s_dir: Path, output_path: Path, delete_after: bool = True) -> bool:

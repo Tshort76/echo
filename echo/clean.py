@@ -10,8 +10,19 @@ SENTENCE_END = re.compile(r".+[.!?]\s*$")
 ITALICS_START = re.compile(r"_(\w)")
 ITALICS_END = re.compile(r"(\w)_")
 PAGE_NUM = re.compile(r"\n\d{1,3}\.?\n")
-ROMAN_NUMERALS = re.compile(r"^\s*([IXV]{1,5}\.)")
+ROMAN_NUMERALS = re.compile(r"^\s*([IXV]{1,5}\.)", flags=re.M)
+SUBSECTION_HEADER = re.compile(r"^\d{1,2}\.\d{1,2}", flags=re.M)
 
+# >= 0 blank lines and the subsequent group of contiguous non-empty lines
+CONTENT_BLOCK_PATTERN = r"""
+(?:\n[\t ]*)*
+(?:(?:[^\n]*\S[^\n]*\n?)+)
+"""
+
+TABLE_BLOCK_PATTERN = re.compile(r"""^Table\s+\d+.*$""" + CONTENT_BLOCK_PATTERN, re.MULTILINE)
+SOURCES_BLOCK_PATTERN = re.compile(
+    r"""(?:SOURCES|Works cited).{0,9}""" + CONTENT_BLOCK_PATTERN, re.MULTILINE | re.IGNORECASE
+)
 
 log = logging.getLogger(__name__)
 
@@ -108,8 +119,25 @@ def remove_repeat_lines(text: str) -> str:
     return text
 
 
-def simplify_gemini_for_audio(txt: str) -> str:
+def clean_gemini_contents(txt: str) -> str:
     txt = txt.replace("*", "")
     txt = txt.replace("#", "")
     txt = ROMAN_NUMERALS.sub("", txt)
+    txt = SUBSECTION_HEADER.sub("", txt)
+    txt = FOOTNOTE_REF.sub(". ", txt)
+    txt = TABLE_BLOCK_PATTERN.sub("TABLE skipped", txt)
+    txt = SOURCES_BLOCK_PATTERN.sub("SOURCES removed", txt)
+
+    return txt
+
+
+def clean_markdown_contents(txt: str) -> str:
+    txt = txt.replace("*", "")
+    txt = txt.replace("#", "")
+    txt = txt.replace("---", "")
+    txt = txt.replace("`", "")
+    txt = ROMAN_NUMERALS.sub("", txt)
+    txt = SUBSECTION_HEADER.sub("", txt)
+    txt = FOOTNOTE_REF.sub(". ", txt)
+
     return txt

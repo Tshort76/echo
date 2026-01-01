@@ -12,6 +12,10 @@ import echo.clean as cln
 log = logging.getLogger(__name__)
 
 
+def print_voices() -> None:
+    print(tts.available_voices())
+
+
 def play_mp3_clip(voice: str, speed: float = 1):
     mp3_path = "resources/outputs/sample.mp3"
     if os.path.exists(mp3_path):
@@ -57,6 +61,11 @@ def convert_to_text(input_path: Path, configs: dict = {}) -> str:
                 chunks = txt.to_chunks(text, 20000)
                 text = "\n".join(map(cln.format_for_audio, chunks))
             return cln.remove_repeat_lines(text)
+        case ".md":
+            log.info(f"Converting markdown {input_path} to text")
+            with open(input_path, "r", encoding="utf-8") as fp:
+                text = fp.read()
+            return cln.clean_markdown_contents(text)
         case other_suffix:
             raise NotImplementedError(f"Echo does not support {other_suffix} files!")
 

@@ -757,6 +757,12 @@ def main() -> int:
     app = QApplication(sys.argv)
     app.setApplicationName("echo")
     apply_theme(app)
+
+    # Point pydub at a bundled/system ffmpeg (needed to merge long conversions).
+    from echo.audio.mp3_utils import configure_ffmpeg
+
+    configure_ffmpeg()
+
     window = MainWindow()
     window.show()
     return app.exec()

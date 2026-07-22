@@ -31,20 +31,33 @@ def _greyscale_image(image: np.ndarray) -> np.ndarray:
     return gray
 
 
+_OCR_HELP = (
+    "This PDF page has no extractable text, so OCR is required — but the optional "
+    "OCR tools are not available. Install Tesseract and Poppler (see the README) "
+    "or use a text-based PDF."
+)
+
+
 def run_ocr_on_page(pdf_path: str, page_num: int) -> str:
     # Convert PDF to images
     poppler_path = os.environ.get("POPPLER_PATH")
     if not poppler_path:
         log.warning(f"Could not find poppler lib.  Did you specify the path in your env?")
 
-    images = convert_from_path(pdf_path, first_page=page_num, last_page=page_num, poppler_path=poppler_path)
+    try:
+        images = convert_from_path(pdf_path, first_page=page_num, last_page=page_num, poppler_path=poppler_path)
+    except Exception as ex:  # pdf2image raises when Poppler isn't installed/on PATH
+        raise RuntimeError(_OCR_HELP) from ex
 
     # Extract text from each page
     page_texts = []
     for image in images:
         x = np.array(image)
         x = _greyscale_image(x)
-        page_texts.append(pytesseract.image_to_string(x))
+        try:
+            page_texts.append(pytesseract.image_to_string(x))
+        except EnvironmentError as ex:  # TesseractNotFoundError subclasses this
+            raise RuntimeError(_OCR_HELP) from ex
 
     return " ".join(page_texts)
 

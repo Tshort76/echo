@@ -11,3 +11,8 @@ resources/*
 !resources/demo_data/
 !resources/voices.csv
 *.ipynb
+
+# PyInstaller build artifacts
+build/
+dist/
+vendor/

@@ -1,0 +1,8 @@
+# Dependencies for building the standalone app with PyInstaller.
+# Install into a dedicated build venv:  pip install -r requirements-build.txt
+#
+# Recommendation: build on Python 3.11–3.13 for the most battle-tested
+# PyInstaller + PySide6 + opencv hook support. Python 3.14 may work with a
+# recent PyInstaller but is less proven (see packaging/build_app.py's warning).
+-r requirements-gui.txt
+pyinstaller>=6.11          # pin the exact version once a build succeeds on both OSes

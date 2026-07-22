@@ -39,6 +39,14 @@ python create_audio.py my_file.txt --save   # also writes intermediate .txt
 # Gemini Deep Research → audio (requires google-generativeai installed separately)
 python deep_research_cli.py topic_config.json   # JSON with "name" and "topic" keys
 python deep_research_cli.py existing_research.txt  # convert existing text to audio
+
+# Desktop GUI
+python echo_gui.py                                 # needs: pip install -r requirements-gui.txt
+
+# Build a standalone app (per-OS; PyInstaller can't cross-compile)
+pip install -r requirements-build.txt
+python packaging/fetch_ffmpeg.py                   # vendor static ffmpeg → vendor/
+python packaging/build_app.py                      # → dist/Echo.app (mac) | dist/Echo/ (win)
 ```
 
 ## Architecture
@@ -47,6 +55,7 @@ python deep_research_cli.py existing_research.txt  # convert existing text to au
 echo/
   core.py          # Public API: convert_to_text(), file_to_mp3()
   clean.py         # Text normalization for audio (PDF, EPUB, Markdown, Gemini output)
+  paths.py         # resource_path(): resolves bundled data in a checkout AND a frozen build
   constants.py     # Env-driven config: DEFAULT_VOICE, DEFAULT_SPEED, CHUNK_SIZE, MAX_THREADS
   extractors/
     text.py        # Gutenberg stripping, to_chunks() for splitting text
@@ -63,7 +72,21 @@ gui/
   app.py           # PySide6 main window: file→MP3 conversion view
   voices.py        # Loads/filters resources/voices.csv for the voice dropdown
   workers.py       # QThread workers; capture backend logs → progress bar/log panel
+echo_gui.spec      # PyInstaller build config (onedir; macOS .app + Windows .exe)
+packaging/
+  build_app.py     # Build entry: checks env, vendors ffmpeg, runs PyInstaller
+  fetch_ffmpeg.py  # Downloads a static ffmpeg into vendor/ for bundling
+  icons/           # Optional echo.icns / echo.ico for the packaged app
 ```
+
+### Packaging
+
+`python packaging/build_app.py` freezes the GUI with PyInstaller (onedir). The key
+correctness piece is `echo/paths.py::resource_path()`, which resolves bundled data
+(notably `resources/voices.csv`) from `sys._MEIPASS` when frozen and from the repo
+root otherwise — used by `constants.py` and `gui/voices.py`. ffmpeg (required by
+pydub to merge long conversions) is bundled from `vendor/`; `mp3_utils.configure_ffmpeg()`
+points pydub at the bundled binary, falling back to a system ffmpeg on PATH.
 
 ### GUI layer
 

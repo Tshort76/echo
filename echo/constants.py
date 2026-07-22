@@ -2,6 +2,8 @@ import os
 from dotenv import load_dotenv
 import re
 
+from echo.paths import resource_path
+
 load_dotenv()
 
 
@@ -15,7 +17,11 @@ def _get_env_number(env_key: str, default_: int) -> int:
     return default_
 
 
-VOICE_CACHE_FILE = "resources/voices.csv"
+# Resolved so it works both from a normal checkout (any cwd) and a frozen build.
+# Note: in a frozen app this points inside the bundle, so update_voice_cache_file()
+# (a dev/CLI maintenance helper, not reachable from the GUI) would not be writable
+# there — acceptable for now.
+VOICE_CACHE_FILE = str(resource_path("resources/voices.csv"))
 OUTPUT_FOLDER = os.environ.get("DEFAULT_OUTPUT_FOLDER", "")
 DEFAULT_VOICE = os.environ.get("DEFAULT_VOICE", "en-GB-SoniaNeural")
 DEFAULT_SPEED = _get_env_number("DEFAULT_SPEED", 1.25)

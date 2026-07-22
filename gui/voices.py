@@ -10,11 +10,11 @@ import csv
 from dataclasses import dataclass
 from pathlib import Path
 
-# Repo root is the parent of this package; the voice cache lives alongside the
-# other bundled resources. Resolved this way so the GUI works regardless of the
-# current working directory it happens to be launched from.
-_REPO_ROOT = Path(__file__).resolve().parent.parent
-VOICES_CSV = _REPO_ROOT / "resources" / "voices.csv"
+from echo.paths import resource_path
+
+# The voice cache lives alongside the other bundled resources. resource_path()
+# resolves it correctly from any cwd and inside a frozen PyInstaller build.
+VOICES_CSV = resource_path("resources/voices.csv")
 
 
 @dataclass(frozen=True)

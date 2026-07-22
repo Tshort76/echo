@@ -43,6 +43,54 @@ The GUI is an optional, separate layer that imports the `echo` backend — the
 backend and CLI have no dependency on the GUI, so `create_audio.py` and
 `deep_research_cli.py` keep working without PySide6 installed.
 
+## Build a standalone app (PyInstaller)
+Package the GUI into a self-contained, double-clickable app that needs **no Python
+install** for end users — `Echo.app` on macOS, an `Echo/` folder with `Echo.exe`
+on Windows. PyInstaller cannot cross-compile, so build on each target OS.
+
+### Prerequisites
+- Build on the OS you're targeting (macOS build → `.app`; Windows build → `.exe`).
+- A dedicated **build virtual environment**. Python **3.11–3.13** is the safest
+  choice for PyInstaller + PySide6/opencv; 3.14 also works but is less proven.
+
+### Steps
+```bash
+# 1. Create and activate a build venv
+python -m venv .venv-build
+source .venv-build/bin/activate          # Windows: .venv-build\Scripts\activate
+
+# 2. Install build dependencies (base + GUI + PyInstaller)
+pip install -r requirements-build.txt
+
+# 3. Vendor a static ffmpeg into vendor/ (bundled into the app)
+python packaging/fetch_ffmpeg.py
+
+# 4. Build
+python packaging/build_app.py
+```
+
+Artifacts land in `dist/`:
+- **macOS:** `dist/Echo.app` — double-click to run (or `open dist/Echo.app`).
+- **Windows:** `dist/Echo/` — run `Echo.exe`; distribute the whole folder (zip it).
+
+`build_app.py` sanity-checks the Python version, vendors ffmpeg if missing, then
+runs PyInstaller against `echo_gui.spec`. To build manually:
+`pyinstaller echo_gui.spec --noconfirm --clean`.
+
+### Notes / runtime requirements
+- **ffmpeg** is bundled (needed to merge conversions longer than ~8000 chars);
+  shorter texts convert without it. If `fetch_ffmpeg.py` can't download a static
+  build (its source URLs can drift), install ffmpeg yourself — the app falls back
+  to an ffmpeg on `PATH`. Bundled ffmpeg is GPL/LGPL; keep its `LICENSE.txt`.
+- **Internet is required at runtime** — TTS uses Microsoft Edge's online service.
+- **Scanned/image PDFs** still need Tesseract + Poppler installed separately;
+  they are *not* bundled. Text-based PDFs, EPUB, TXT, and MD need nothing extra.
+- Unsigned apps trip **Gatekeeper** (macOS: right-click → Open, or
+  `xattr -dr com.apple.quarantine Echo.app`) and **SmartScreen** (Windows:
+  More info → Run anyway). Code-signing/notarization is out of scope here.
+- Icons are optional: drop `packaging/icons/echo.icns` (macOS) and `echo.ico`
+  (Windows) to brand the app; the build works without them.
+
 ## Run with CLI interface
 `python create_audio.py my_little_pony.txt`
 `python create_audio.py my_little_pony.txt -o my_little_pony.mp3 -v Eric_US -s 1.75`

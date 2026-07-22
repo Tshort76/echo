@@ -28,6 +28,21 @@ POPPLER_PATH="C:/Program Files/poppler-24.08.0/Library/bin"
 # Usage
 Assuming that you have activated your `venv` and your working directory is the project's root directory ...
 
+## Run with the desktop app (GUI)
+A cross-platform (macOS & Windows) desktop UI wraps the core conversion: file
+pickers for input/output, a filterable voice dropdown, a speed slider, metadata
+fields, an output verbosity control, and a play button for the generated MP3.
+(The Gemini Deep Research workflow is currently CLI-only via `deep_research_cli.py`.)
+
+```bash
+pip install -r requirements-gui.txt   # installs base requirements + PySide6
+python echo_gui.py
+```
+
+The GUI is an optional, separate layer that imports the `echo` backend — the
+backend and CLI have no dependency on the GUI, so `create_audio.py` and
+`deep_research_cli.py` keep working without PySide6 installed.
+
 ## Run with CLI interface
 `python create_audio.py my_little_pony.txt`
 `python create_audio.py my_little_pony.txt -o my_little_pony.mp3 -v Eric_US -s 1.75`

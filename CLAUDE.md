@@ -58,7 +58,27 @@ echo/
     voices.py      # Voice discovery and caching
 create_audio.py    # CLI wrapper around core.file_to_mp3()
 deep_research_cli.py  # Gemini Deep Research → clean → audio pipeline
+echo_gui.py        # Launcher for the optional desktop GUI
+gui/
+  app.py           # PySide6 main window: file→MP3 conversion view
+  voices.py        # Loads/filters resources/voices.csv for the voice dropdown
+  workers.py       # QThread workers; capture backend logs → progress bar/log panel
 ```
+
+### GUI layer
+
+The `gui/` package (PySide6) is an **optional presentation layer** launched with
+`python echo_gui.py` (deps in `requirements-gui.txt`). The dependency direction is
+strictly one-way: the GUI imports `echo` and `deep_research_cli`; neither the
+backend nor the CLI imports the GUI. GUI-only deps (PySide6) are kept out of the
+base `requirements.txt` so the CLI stays lightweight. Long-running work runs in
+`QThread` workers that install a temporary logging handler to forward backend log
+lines to the UI and parse `"Progress Report: NN%"` messages into the progress bar
+— so no backend changes were needed for progress reporting. The "Output
+verbosity" dropdown (Info/Errors/Debug) in the advanced settings sets the capture
+level on that handler, so the Output panel shows more or less detail per run. The
+Deep Research tab has been temporarily removed from the UI (its classes remain
+parked in `app.py`/`workers.py`); the Gemini workflow stays available via the CLI.
 
 ### Key data flow
 

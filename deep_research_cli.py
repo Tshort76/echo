@@ -6,7 +6,6 @@ import json
 from pathlib import Path
 import logging
 
-import google.generativeai as genai
 from dotenv import load_dotenv
 
 import echo.core as echo
@@ -26,22 +25,30 @@ log = logging.getLogger(__name__)
 
 # Configuration
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
-OUTPUT_DIR = Path("resources\\outputs\\geminiDR")
+# Built with pathlib so it resolves correctly on both Windows and macOS/Linux.
+OUTPUT_DIR = Path("resources") / "outputs" / "geminiDR"
 PREAMBLE_KEYWORDS = ["i'll conduct", "i'll search", "researching", "gathering information"]
 CONCLUSION_KEYWORDS = ["in conclusion", "summary", "here's what i found", "based on my research"]
 
 
 def setup_output_directory():
-    OUTPUT_DIR.mkdir(exist_ok=True)
+    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
 
 def initialize_gemini():
+    # Imported lazily so the module (and its reusable helpers) can be imported
+    # without google-generativeai installed; it is only required to actually run
+    # a research query.
+    import google.generativeai as genai
+
     if not GEMINI_API_KEY:
         raise ValueError("GEMINI_API_KEY environment variable not set")
     genai.configure(api_key=GEMINI_API_KEY)
 
 
 def start_deep_research(prompt_config: dict) -> str:
+    import google.generativeai as genai
+
     log.info(f"Starting deep research on: {prompt_config['name']}")
 
     prompt = f"""Conduct a comprehensive deep research on the following topic:

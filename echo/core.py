@@ -100,11 +100,11 @@ def build_script(
     """Turn a Document into a chapter-aware Script sized for the engine."""
     engine = get_engine(engine_name)
     limit = min(chunk_size or ec.CHUNK_SIZE, engine.max_chars)
-    return norm.build_script(
-        doc,
-        chunk_size=limit,
-        normalizer=norm.get_normalizer(normalizer),
-    )
+    resolved = norm.get_normalizer(normalizer)
+    # Fail before any synthesis rather than falling back for every chunk: if LLM
+    # normalization was asked for, silently not doing it is the wrong answer.
+    resolved.check_available()
+    return norm.build_script(doc, chunk_size=limit, normalizer=resolved)
 
 
 # ─────────────────────────────────────────────────────────────────────────────

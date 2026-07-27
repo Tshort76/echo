@@ -104,6 +104,7 @@ class ConversionWorker(_BaseWorker):
         fmt: str = None,
         normalizer: str = None,
         write_transcript: bool = False,
+        resume: bool = True,
         log_level: int = logging.INFO,
         parent=None,
     ):
@@ -120,6 +121,7 @@ class ConversionWorker(_BaseWorker):
             normalizer=normalizer,
             write_text_file=save_text,
             write_transcript=write_transcript,
+            resume=resume,
             parser_configs=parser_configs,
         )
 

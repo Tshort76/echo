@@ -22,7 +22,14 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 pytest.importorskip("PySide6", reason="GUI dependencies not installed")
 
-from PySide6.QtWidgets import QApplication, QTabWidget  # noqa: E402
+from PySide6.QtCore import Qt  # noqa: E402
+from PySide6.QtWidgets import (  # noqa: E402
+    QApplication,
+    QCheckBox,
+    QFormLayout,
+    QLabel,
+    QTabWidget,
+)
 
 import echo.core as core  # noqa: E402
 from gui.app import GutenbergDialog, MainWindow  # noqa: E402
@@ -185,6 +192,126 @@ class TestGather:
             tab.gather()
 
 
+class TestLabelsFit:
+    """Guards a class of bug hit twice while building this dialog: a label either
+    clipped by a few pixels, or squeezed to zero width by a field whose
+    minimumSizeHint (a combo box's longest item) consumed the whole row."""
+
+    @staticmethod
+    def _shown(dialog):
+        dialog.adjustSize()
+        dialog.show()
+        QApplication.processEvents()
+        return dialog
+
+    def test_no_settings_label_is_clipped_or_hidden(self, window):
+        dialog = self._shown(window.convert_tab.settings)
+
+        squeezed = []
+        for form in dialog.findChildren(QFormLayout):
+            for row in range(form.rowCount()):
+                item = form.itemAt(row, QFormLayout.LabelRole)
+                label = item.widget() if item else None
+                if label is not None and label.text() and label.width() == 0:
+                    squeezed.append(label.text())
+        assert squeezed == [], f"label column collapsed for: {squeezed}"
+
+        clipped = [
+            w.text()
+            for w in dialog.findChildren(QLabel) + dialog.findChildren(QCheckBox)
+            if w.text() and w.width() < w.sizeHint().width()
+        ]
+        assert clipped == [], f"text does not fit: {clipped}"
+
+    def test_no_gutenberg_label_is_clipped_or_hidden(self, app):
+        dialog = self._shown(GutenbergDialog())
+        clipped = [
+            w.text()
+            for w in dialog.findChildren(QLabel)
+            if w.text() and w.width() < w.sizeHint().width()
+        ]
+        assert clipped == [], f"text does not fit: {clipped}"
+
+
+class TestExtractionControls:
+    """Options that used to be CLI-only: --force-ocr, --docling, --no-resume."""
+
+    def test_they_default_to_the_cli_defaults(self, window):
+        s = window.convert_tab.settings
+        assert s.force_ocr.isChecked() is False
+        assert s.use_docling.isChecked() is False
+        assert s.resume.isChecked() is True  # --no-resume is opt-in
+
+    def test_docling_is_disabled_when_it_is_not_installed(self, window):
+        from importlib.util import find_spec
+
+        s = window.convert_tab.settings
+        assert s.use_docling.isEnabled() is (find_spec("docling") is not None)
+        if not s.use_docling.isEnabled():
+            assert "pip install docling" in s.use_docling.toolTip()
+
+    def test_they_reach_the_backend_through_gather(self, window, book):
+        tab = window.convert_tab
+        select_engine(tab, "edge")
+        tab.input_edit.setText(str(book))
+        tab._autofill_output(str(book))
+        tab.settings.force_ocr.setChecked(True)
+        tab.settings.resume.setChecked(False)
+
+        params = tab.gather()
+        assert params["parser_configs"]["force_ocr"] is True
+        assert params["parser_configs"]["use_docling"] is False
+        assert params["resume"] is False
+        # The worker must accept them too.
+        ConversionWorker(**params)
+
+    def test_the_pdf_page_range_still_flows_through(self, window, book):
+        tab = window.convert_tab
+        select_engine(tab, "edge")
+        tab.input_edit.setText(str(book))
+        tab._autofill_output(str(book))
+        tab.settings.first_page.setValue(30)
+        tab.settings.last_page.setValue(120)
+        configs = tab.gather()["parser_configs"]
+        assert (configs["first_page"], configs["last_page"]) == (30, 120)
+
+
+class TestNormalizerControl:
+    def test_it_offers_every_backend_normalizer(self, window):
+        from echo.normalize import NORMALIZER_NAMES
+
+        combo = window.convert_tab.settings.normalizer
+        assert [combo.itemData(i) for i in range(combo.count())] == list(NORMALIZER_NAMES)
+
+    def test_it_defaults_to_something_that_can_actually_run(self, window):
+        s = window.convert_tab.settings
+        assert not s._normalizer_reasons.get(s.normalizer.currentData())
+
+    def test_unavailable_choices_are_disabled_with_their_reason(self, window):
+        s = window.convert_tab.settings
+        model = s.normalizer.model()
+        for i in range(s.normalizer.count()):
+            name = s.normalizer.itemData(i)
+            reason = s._normalizer_reasons.get(name)
+            assert model.item(i).isEnabled() is (not reason)
+            if reason:
+                assert s.normalizer.itemData(i, Qt.ToolTipRole) == reason
+
+    def test_choosing_an_unavailable_normalizer_is_refused(self, window, book):
+        """Rather than converting a whole book and quietly not normalizing it."""
+        tab = window.convert_tab
+        s = tab.settings
+        broken = next((n for n, r in s._normalizer_reasons.items() if r), None)
+        if broken is None:
+            pytest.skip("every normalizer is configured on this machine")
+        select_engine(tab, "edge")
+        tab.input_edit.setText(str(book))
+        tab._autofill_output(str(book))
+        s.normalizer.setCurrentIndex(s.normalizer.findData(broken))
+        with pytest.raises(ValueError, match="normalization is not available"):
+            tab.gather()
+
+
 class TestGutenbergDialog:
     def test_it_starts_with_nothing_selected(self, app):
         dialog = GutenbergDialog()
@@ -225,3 +352,34 @@ class TestGutenbergDialog:
         item = dialog.results_list.item(0)
         assert len(item.text()) <= dialog._MAX_LABEL
         assert item.text().endswith("…")
+
+    def test_the_catalogue_language_can_be_chosen(self, app):
+        dialog = GutenbergDialog()
+        codes = [dialog.language_combo.itemData(i) for i in range(dialog.language_combo.count())]
+        assert codes[0] == ""  # "Any language"
+        assert {"en", "fr", "de", "la"} <= set(codes)
+        assert dialog.language_combo.currentData() == "en"
+
+    def test_the_chosen_language_is_passed_to_the_search(self, app, monkeypatch):
+        import gui.app as app_module
+
+        captured = {}
+
+        class FakeWorker:
+            def __init__(self, title, author, language):
+                captured.update(title=title, author=author, language=language)
+                self.results = self.failed = _Signal()
+
+            def start(self):
+                pass
+
+        class _Signal:
+            def connect(self, _fn):
+                pass
+
+        monkeypatch.setattr(app_module, "GutenbergSearchWorker", FakeWorker)
+        dialog = GutenbergDialog()
+        dialog.title_edit.setText("faust")
+        dialog.language_combo.setCurrentIndex(dialog.language_combo.findData("de"))
+        dialog._search()
+        assert captured == {"title": "faust", "author": "", "language": "de"}

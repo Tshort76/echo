@@ -187,6 +187,15 @@ frequency — the old frequency approach deleted recurring prose book-wide.
   section's *prelude*, so it is spoken before that chapter's heading rather than
   after it. Nothing is ever discarded.
 
+Normalizers mirror the engine availability pattern: `check_available()` raises
+`NormalizerUnavailable` with a fix-it message, `is_available()` returns
+`(ok, reason)`, and `available_normalizers()` feeds the GUI dropdown.
+`core.build_script()` calls `check_available()` **before** any synthesis — if LLM
+normalization was explicitly requested, silently falling back for every chunk
+produces a book that quietly wasn't normalized. The `local` probe treats any HTTP
+response (including 404) as reachable, since some OpenAI-compatible servers only
+implement `/chat/completions`.
+
 LLM normalization is **off by default** and guarded by `_GuardedNormalizer`: the
 result is rejected and the original kept if the length drifts more than
 `NORMALIZER_LENGTH_TOLERANCE` (25%), if the model adds a preamble or refuses, if
@@ -223,9 +232,21 @@ The `gui/` package (PySide6) is an **optional presentation layer** launched with
 
 Long-running work runs in `QThread` workers that install a temporary logging
 handler to forward backend log lines to the UI and parse the progress string. The
-engine dropdown is built from `available_engines()`, so engines needing setup are
-disabled with the reason in their tooltip, and `ConvertTab.gather()` refuses to
-start a conversion on one.
+engine and normalizer dropdowns are built from `available_engines()` /
+`available_normalizers()`, so choices needing setup are disabled with the reason in
+their tooltip, and `ConvertTab.gather()` refuses to start a conversion on one.
+
+**A Qt sizing trap worth knowing, hit twice here.** A `QComboBox` in a
+`QFormLayout` row derives its `minimumSizeHint` from its *longest item*. A long
+item can therefore consume the whole row and squeeze the label column to **zero
+width** — the label is still present and `isVisible()`, it just renders as nothing,
+so it looks like a forgotten label rather than a layout bug. The fix is
+`setSizeAdjustPolicy(AdjustToMinimumContentsLengthWithIcon)` plus
+`setMinimumContentsLength(...)`; the full text still shows in the popup. The
+related failure is a `QCheckBox` label a few pixels wider than its column, which
+truncates mid-word. `test/test_gui.py::TestLabelsFit` guards both by walking every
+form label and comparing width against `sizeHint()` — keep it passing rather than
+eyeballing screenshots.
 
 ### Packaging
 

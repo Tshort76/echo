@@ -235,11 +235,16 @@ pip install -r requirements-gui.txt
 python echo_gui.py
 ```
 
-A cross-platform PySide6 UI: file pickers plus a **Gutenberg…** search button, an
-engine dropdown (engines needing setup are greyed out with the reason), a
-filterable voice picker with preview, speed slider, format choice, metadata and
-normalization settings behind the gear, live progress and a play button for the
-result.
+A cross-platform PySide6 UI with everything the CLI can do:
+
+- **Main form** — input file (or a **Gutenberg…** search), engine, voice with
+  language/gender filters and a preview button, speed, output format, output path.
+- **Behind the gear** — metadata and cover art; extraction options (PDF page range,
+  force OCR, Docling); text normalization; save-text, transcript, resume and
+  verbosity.
+- **Nothing fails halfway.** Engines and normalizers that need setup are greyed out
+  with the reason attached, so a missing API key or model server is reported before
+  a conversion starts rather than an hour into one.
 
 The GUI imports `echo`; the backend never imports the GUI, so the CLI keeps
 working without PySide6 installed.

@@ -38,6 +38,9 @@ _MULTI_SPACE = re.compile(r"[ \t]{2,}")
 #: A section must also be under this fraction of the document's typical section
 #: length to count as a stub rather than a genuinely short chapter.
 _STUB_FRACTION = 0.2
+#: Seconds to wait when probing a local model server for liveness. Short, because
+#: this runs while a UI is waiting for the dropdown to populate.
+_PROBE_TIMEOUT = 2.0
 _ELLIPSIS = re.compile(r"\.{3,}|(?:\.\s){2,}\.")
 _DASH_RUN = re.compile(r"\s*(?:—|–|--+)\s*")
 
@@ -149,22 +152,60 @@ _REFUSAL_HINTS = (
 )
 
 
+class NormalizerUnavailable(RuntimeError):
+    """Raised when a normalizer's model or credentials are missing.
+
+    Mirrors :class:`~echo.audio.engines.base.EngineUnavailable`: if you explicitly
+    asked for LLM normalization, a silent fall back to the rules pass is the wrong
+    answer. The guardrails still degrade gracefully *mid-run*; this is about
+    catching an unusable choice before a conversion starts.
+    """
+
+
 class Normalizer(Protocol):
     """Turns a chunk of already rules-normalized text into narration-ready text."""
+
+    #: Registry key: "off", "local" or "gemini".
+    name: str
+    #: Human-readable name for a UI.
+    label: str
+
+    def check_available(self) -> None:
+        """Raise :class:`NormalizerUnavailable` with a fix-it message, or return."""
+        ...
 
     def normalize(self, text: str) -> str: ...
 
 
-class RulesNormalizer:
+class _BaseNormalizer:
+    """Shared availability plumbing."""
+
+    name = "off"
+    label = "Off"
+
+    def check_available(self) -> None:
+        return None
+
+    def is_available(self) -> tuple[bool, str]:
+        """Convenience for UIs: ``(ok, reason)`` instead of an exception."""
+        try:
+            self.check_available()
+            return True, ""
+        except Exception as ex:
+            return False, str(ex)
+
+
+class RulesNormalizer(_BaseNormalizer):
     """The default: deterministic, no network, no surprises."""
 
     name = "off"
+    label = "Off — deterministic rules only"
 
     def normalize(self, text: str) -> str:
         return text
 
 
-class _GuardedNormalizer:
+class _GuardedNormalizer(_BaseNormalizer):
     """Shared guardrails for any model-backed normalizer.
 
     Rejects and falls back to the original whenever the result looks like
@@ -172,6 +213,7 @@ class _GuardedNormalizer:
     """
 
     name = "guarded"
+    label = "Guarded"
 
     def __init__(self, tolerance: float = None):
         self.tolerance = ec.NORMALIZER_LENGTH_TOLERANCE if tolerance is None else tolerance
@@ -217,12 +259,33 @@ class LocalLLMNormalizer(_GuardedNormalizer):
     """
 
     name = "local"
+    label = "Local model (LM Studio / Ollama)"
 
     def __init__(self, base_url: str = None, model: str = None, api_key: str = None, tolerance: float = None):
         super().__init__(tolerance)
         self.base_url = (base_url or ec.LOCAL_LLM_BASE_URL).rstrip("/")
         self.model = model or ec.LOCAL_LLM_MODEL
         self.api_key = api_key or ec.LOCAL_LLM_API_KEY
+
+    def check_available(self) -> None:
+        """Probe the endpoint for liveness.
+
+        Any HTTP response counts as reachable — a 404 on ``/models`` still means a
+        server is listening, and some OpenAI-compatible servers only implement
+        ``/chat/completions``. Only a failure to connect means "nothing there".
+        """
+        request = urllib.request.Request(
+            f"{self.base_url}/models", headers={"Authorization": f"Bearer {self.api_key}"}
+        )
+        try:
+            urllib.request.urlopen(request, timeout=_PROBE_TIMEOUT).close()
+        except urllib.error.HTTPError:
+            return  # something answered; good enough
+        except (urllib.error.URLError, TimeoutError, OSError) as ex:
+            raise NormalizerUnavailable(
+                f"No local model server answered at {self.base_url}. Start LM Studio "
+                f"or Ollama (and check LOCAL_LLM_BASE_URL). Details: {ex}"
+            ) from ex
 
     def _call_model(self, text: str) -> str:
         payload = json.dumps(
@@ -249,21 +312,32 @@ class GeminiNormalizer(_GuardedNormalizer):
     """Uses the Gemini API via the current ``google-genai`` SDK."""
 
     name = "gemini"
+    label = "Gemini (needs GEMINI_API_KEY)"
 
     def __init__(self, model: str = None, api_key: str = None, tolerance: float = None):
         super().__init__(tolerance)
         self.model = model or ec.GEMINI_TEXT_MODEL
         self._api_key = api_key or ec.GEMINI_API_KEY
-        if not self._api_key:
-            raise ValueError("GEMINI_API_KEY is not set, so the gemini normalizer cannot run")
         self._client = None
+
+    def check_available(self) -> None:
+        if not self._api_key:
+            raise NormalizerUnavailable(
+                "Gemini normalization needs an API key. Set GEMINI_API_KEY in your "
+                ".env (create one at https://aistudio.google.com/apikey)."
+            )
+        try:
+            import google.genai  # noqa: F401, PLC0415
+        except ImportError as ex:
+            raise NormalizerUnavailable(
+                "Gemini normalization needs `pip install google-genai`"
+            ) from ex
 
     def _client_or_load(self):
         if self._client is None:
-            try:
-                from google import genai  # noqa: PLC0415
-            except ImportError as ex:
-                raise ImportError("The gemini normalizer needs `pip install google-genai`") from ex
+            self.check_available()
+            from google import genai  # noqa: PLC0415
+
             self._client = genai.Client(api_key=self._api_key)
         return self._client
 
@@ -278,8 +352,15 @@ class GeminiNormalizer(_GuardedNormalizer):
         return response.text
 
 
+NORMALIZER_NAMES = ("off", "local", "gemini")
+
+
 def get_normalizer(name: str = None) -> Normalizer:
-    """Resolve a normalizer by name: ``off`` (default), ``local`` or ``gemini``."""
+    """Resolve a normalizer by name: ``off`` (default), ``local`` or ``gemini``.
+
+    Construction never touches the network; call ``check_available()`` on the
+    result to find out whether it can actually run.
+    """
     name = (name or ec.NORMALIZER or "off").strip().lower()
     match name:
         case "off" | "none" | "rules" | "":
@@ -289,7 +370,25 @@ def get_normalizer(name: str = None) -> Normalizer:
         case "gemini":
             return GeminiNormalizer()
         case other:
-            raise ValueError(f"Unknown normalizer '{other}'. Choose from: off, local, gemini")
+            raise ValueError(f"Unknown normalizer '{other}'. Choose from: {', '.join(NORMALIZER_NAMES)}")
+
+
+def available_normalizers() -> list[tuple[Normalizer, bool, str]]:
+    """Every normalizer with whether it can run now, and why not if it can't.
+
+    Used by the GUI to disable a choice that would otherwise appear to work and
+    then quietly fall back to the rules pass for every chunk.
+    """
+    out = []
+    for name in NORMALIZER_NAMES:
+        try:
+            normalizer = get_normalizer(name)
+        except Exception as ex:  # pragma: no cover - defensive
+            log.debug(f"Normalizer {name} could not be constructed: {ex}")
+            continue
+        ok, reason = normalizer.is_available()
+        out.append((normalizer, ok, reason))
+    return out
 
 
 # ─────────────────────────────────────────────────────────────────────────────

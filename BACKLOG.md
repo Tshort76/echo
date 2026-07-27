@@ -23,6 +23,8 @@ Phases P0–P3 of the review are done, plus two things that were later phases:
 | Deep Research removed; optional guarded LLM normalization added | `d15511f` |
 | Project Gutenberg search + download | `5976efa` |
 | README/code audit | `4df3599` |
+| `BACKLOG.md`; GUI tests checked in | `e007719` |
+| Full CLI/UI parity; normalizer availability checks | this commit |
 
 254 tests pass. `edge` is verified end-to-end on markdown, PDF, EPUB and two real
 Gutenberg books. The gaps below are mostly *unverified* work rather than unwritten
@@ -99,8 +101,9 @@ From the review's phase 5, plus one thing the review asked for that shipped with
       by the engine. 1.0 leaves the file re-usable at any playback speed, which
       matters if you keep a library. Left unchanged to avoid surprising you.
 - [ ] **`--transcript` is a no-op on three of four engines.** (S) Only `edge` reports
-      word timings. It is logged, but easy to miss — consider refusing the flag, or
-      surfacing it in the GUI.
+      word timings. The GUI checkbox now says so in its tooltip and the backend logs
+      it, but the CLI still accepts the flag silently. Consider warning up front when
+      the chosen engine cannot honour it.
 - [ ] **Nothing prunes stale `*_chunks/` directories.** (S) Failed runs leave them
       deliberately, so a re-run can resume. Add a `--clean` or a sweep on success.
 - [ ] **Gutendex is an unmitigated third-party dependency.** (S–M) If it goes away,

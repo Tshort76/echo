@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import logging
 import sys
+from importlib.util import find_spec
 from pathlib import Path
 
 from PySide6.QtCore import QSize, Qt
@@ -47,6 +48,7 @@ from PySide6.QtWidgets import (
 
 import echo.constants as ec
 from echo.audio.assemble import FORMATS
+from echo.normalize import available_normalizers
 from gui import voices as gv
 from gui.style import apply_theme
 from gui.workers import (
@@ -62,6 +64,29 @@ FORMAT_BLURBS = {
     "m4b": "M4B — audiobook with chapter marks",
     "mp3": "MP3 — plays everywhere, no chapters",
 }
+
+#: The better-represented languages in Project Gutenberg's catalogue. Not
+#: exhaustive — "Any language" covers the rest.
+CATALOGUE_LANGUAGES: tuple[tuple[str, str], ...] = (
+    ("English", "en"),
+    ("French", "fr"),
+    ("German", "de"),
+    ("Spanish", "es"),
+    ("Italian", "it"),
+    ("Portuguese", "pt"),
+    ("Dutch", "nl"),
+    ("Latin", "la"),
+    ("Greek", "el"),
+    ("Russian", "ru"),
+    ("Swedish", "sv"),
+    ("Finnish", "fi"),
+    ("Danish", "da"),
+    ("Hungarian", "hu"),
+    ("Polish", "pl"),
+    ("Chinese", "zh"),
+    ("Japanese", "ja"),
+    ("Esperanto", "eo"),
+)
 
 
 # --------------------------------------------------------------------------- #
@@ -244,6 +269,14 @@ class SettingsDialog(QDialog):
         cover_row.addWidget(self.cover_edit, 1)
         cover_row.addWidget(cover_browse)
 
+        meta_form = QFormLayout()
+        meta_form.setLabelAlignment(Qt.AlignLeft | Qt.AlignVCenter)
+        meta_form.setVerticalSpacing(10)
+        meta_form.addRow("Title:", self.title_edit)
+        meta_form.addRow("Author:", self.author_edit)
+        meta_form.addRow("Cover image:", cover_row)
+
+        # --- Extraction (PDF-oriented; page range belongs here, not with metadata) ---
         self.first_page = QSpinBox()
         self.first_page.setRange(0, 99999)
         self.last_page = QSpinBox()
@@ -257,26 +290,56 @@ class SettingsDialog(QDialog):
         page_row.addWidget(self.last_page)
         page_row.addStretch(1)
 
-        meta_form = QFormLayout()
-        meta_form.setLabelAlignment(Qt.AlignLeft | Qt.AlignVCenter)
-        meta_form.setVerticalSpacing(10)
-        meta_form.addRow("Title:", self.title_edit)
-        meta_form.addRow("Author:", self.author_edit)
-        meta_form.addRow("Cover image:", cover_row)
-        meta_form.addRow("PDF page range:", page_row)
+        self.force_ocr = QCheckBox("Always OCR pages")
+        self.force_ocr.setToolTip(
+            "Ignore the PDF's own text layer and read the pages as images. For "
+            "scanned books, or ones whose text layer is garbled. Needs Tesseract "
+            "installed (brew install tesseract)."
+        )
+        self.use_docling = QCheckBox("Use Docling to extract (slower, better layout)")
+        docling_installed = find_spec("docling") is not None
+        self.use_docling.setEnabled(docling_installed)
+        self.use_docling.setToolTip(
+            "For documents the fast path mangles."
+            if docling_installed
+            else "Not installed — run: pip install docling"
+        )
+
+        extract_form = QFormLayout()
+        extract_form.setLabelAlignment(Qt.AlignLeft | Qt.AlignVCenter)
+        extract_form.setVerticalSpacing(10)
+        extract_form.addRow("PDF page range:", page_row)
+        extract_form.addRow("", self.force_ocr)
+        extract_form.addRow("", self.use_docling)
 
         # --- Narration ---
+        # Built from the backend so a normalizer that cannot run is disabled here
+        # rather than silently falling back to the rules pass for every chunk.
         self.normalizer = QComboBox()
-        self.normalizer.addItem("Off — deterministic rules only", "off")
-        self.normalizer.addItem("Local model (LM Studio / Ollama)", "local")
-        self.normalizer.addItem("Gemini (needs GEMINI_API_KEY)", "gemini")
+        self._normalizer_reasons: dict[str, str] = {}
+        for normalizer, ok, reason in available_normalizers():
+            self.normalizer.addItem(normalizer.label if ok else f"{normalizer.label} — unavailable", normalizer.name)
+            row = self.normalizer.count() - 1
+            self.normalizer.setItemData(row, reason or normalizer.label, Qt.ToolTipRole)
+            self._normalizer_reasons[normalizer.name] = reason
+            if not ok:
+                self.normalizer.model().item(row).setEnabled(False)
         idx = self.normalizer.findData(ec.NORMALIZER)
-        if idx >= 0:
+        if idx >= 0 and not self._normalizer_reasons.get(ec.NORMALIZER):
             self.normalizer.setCurrentIndex(idx)
+        else:
+            self.normalizer.setCurrentIndex(max(0, self.normalizer.findData("off")))
         self.normalizer.setToolTip(
             "Optional: have a language model expand abbreviations, numbers and "
             "symbols into spoken words. Guarded so it cannot rewrite your prose."
         )
+        # A QComboBox's minimumSizeHint follows its longest item, and "Gemini (needs
+        # GEMINI_API_KEY) — unavailable" is long enough to starve QFormLayout's label
+        # column to zero width — silently hiding this row's label. Capping the
+        # contents length keeps the label visible; the full text still shows in the
+        # popup. (Same fix as the voice combo, for the same reason.)
+        self.normalizer.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon)
+        self.normalizer.setMinimumContentsLength(24)
         norm_row = QHBoxLayout()
         norm_row.setContentsMargins(0, 0, 0, 0)
         norm_row.addWidget(self.normalizer, 1)
@@ -287,6 +350,12 @@ class SettingsDialog(QDialog):
         self.write_transcript = QCheckBox("Save a timed transcript (.srt)")
         self.write_transcript.setToolTip(
             "Only the Edge engine reports word timings, so this has no effect on the others."
+        )
+        self.resume = QCheckBox("Reuse chunks from an interrupted run")
+        self.resume.setChecked(True)
+        self.resume.setToolTip(
+            "On by default: a re-run skips passages already synthesized. Untick to "
+            "start the whole book again."
         )
         self.verbosity = QComboBox()
         self.verbosity.addItem("Info", logging.INFO)
@@ -302,6 +371,7 @@ class SettingsDialog(QDialog):
         vis_form.setVerticalSpacing(10)
         vis_form.addRow("", self.save_text)
         vis_form.addRow("", self.write_transcript)
+        vis_form.addRow("", self.resume)
         vis_form.addRow("Output verbosity:", verb_row)
 
         norm_form = QFormLayout()
@@ -309,12 +379,15 @@ class SettingsDialog(QDialog):
         norm_form.setVerticalSpacing(10)
         norm_form.addRow("Text normalization:", norm_row)
 
-        meta_heading = QLabel("Metadata")
-        meta_heading.setObjectName("sectionHeading")
-        norm_heading = QLabel("Narration")
-        norm_heading.setObjectName("sectionHeading")
-        vis_heading = QLabel("Output & visibility")
-        vis_heading.setObjectName("sectionHeading")
+        def heading(text: str) -> QLabel:
+            label = QLabel(text)
+            label.setObjectName("sectionHeading")
+            return label
+
+        meta_heading = heading("Metadata")
+        extract_heading = heading("Extraction")
+        norm_heading = heading("Narration")
+        vis_heading = heading("Output & visibility")
 
         done = QPushButton("Done")
         done.setObjectName("primary")
@@ -329,6 +402,9 @@ class SettingsDialog(QDialog):
         layout.setSpacing(10)
         layout.addWidget(meta_heading)
         layout.addLayout(meta_form)
+        layout.addSpacing(6)
+        layout.addWidget(extract_heading)
+        layout.addLayout(extract_form)
         layout.addSpacing(6)
         layout.addWidget(norm_heading)
         layout.addLayout(norm_form)
@@ -378,12 +454,26 @@ class GutenbergDialog(QDialog):
         self.prefer_combo.addItem("EPUB — keeps chapter structure", "epub")
         self.prefer_combo.addItem("Plain text", "text")
 
+        # Gutenberg's catalogue is mostly English, but far from only.
+        self.language_combo = QComboBox()
+        self.language_combo.addItem("Any language", "")
+        for label, code in CATALOGUE_LANGUAGES:
+            self.language_combo.addItem(label, code)
+        english = self.language_combo.findData("en")
+        if english >= 0:
+            self.language_combo.setCurrentIndex(english)
+
+        edition_row = QHBoxLayout()
+        edition_row.setContentsMargins(0, 0, 0, 0)
+        edition_row.addWidget(self.prefer_combo, 1)
+        edition_row.addWidget(self.language_combo)
+
         form = QFormLayout()
         form.setLabelAlignment(Qt.AlignLeft | Qt.AlignVCenter)
         form.setVerticalSpacing(10)
         form.addRow("Title:", self._row(self.title_edit, self.search_btn))
         form.addRow("Author:", self.author_edit)
-        form.addRow("Edition:", self.prefer_combo)
+        form.addRow("Edition:", edition_row)
 
         self.results_list = QListWidget()
         self.results_list.setAlternatingRowColors(True)
@@ -450,7 +540,7 @@ class GutenbergDialog(QDialog):
         self._books = []
         self._busy(True, "Searching Project Gutenberg…")
 
-        self._search_worker = GutenbergSearchWorker(title, author)
+        self._search_worker = GutenbergSearchWorker(title, author, self.language_combo.currentData())
         self._search_worker.results.connect(self._on_results)
         self._search_worker.failed.connect(self._on_failed)
         self._search_worker.start()
@@ -732,9 +822,15 @@ class ConvertTab(QWidget):
                 raise ValueError(f"Cover image does not exist:\n{cover}")
             meta["image_path"] = cover
 
+        normalizer_name = s.normalizer.currentData()
+        if reason := s._normalizer_reasons.get(normalizer_name):
+            raise ValueError(f"Text normalization is not available:\n\n{reason}")
+
         parser_configs = {
             "first_page": s.first_page.value(),
             "last_page": s.last_page.value(),
+            "force_ocr": s.force_ocr.isChecked(),
+            "use_docling": s.use_docling.isChecked(),
         }
 
         return dict(
@@ -744,10 +840,11 @@ class ConvertTab(QWidget):
             speed=self.speed.value(),
             engine=engine_name,
             fmt=self.current_format(),
-            normalizer=s.normalizer.currentData(),
+            normalizer=normalizer_name,
             meta=meta,
             save_text=s.save_text.isChecked(),
             write_transcript=s.write_transcript.isChecked(),
+            resume=s.resume.isChecked(),
             parser_configs=parser_configs,
             log_level=s.verbosity.currentData(),
         )

@@ -8,8 +8,9 @@ import echo.constants as ec
 import echo.core as core
 import echo.gutenberg as gutenberg
 from echo.audio.assemble import FORMATS
-from echo.audio.engines import available_engines, engine_names
+from echo.audio.engines import EngineUnavailable, available_engines, engine_names
 from echo.extractors import SUPPORTED_SUFFIXES
+from echo.normalize import NORMALIZER_NAMES, NormalizerUnavailable
 
 log = logging.getLogger(__name__)
 
@@ -113,7 +114,7 @@ def build_parser() -> argparse.ArgumentParser:
         "-n",
         "--normalize",
         dest="normalizer",
-        choices=("off", "local", "gemini"),
+        choices=NORMALIZER_NAMES,
         default=ec.NORMALIZER,
         help=f"LLM text normalization for narration. (Default: {ec.NORMALIZER})",
     )
@@ -213,20 +214,25 @@ def main(argv: list[str] = None) -> int:
         f"Metadata: {args.mp3_meta}\n--------------------"
     )
 
-    output_path = core.file_to_audio(
-        args.file_path,
-        output_path=args.output,
-        mp3_meta=args.mp3_meta,
-        voice=args.voice,
-        speed=args.speed,
-        engine=args.engine,
-        fmt=args.fmt,
-        normalizer=args.normalizer,
-        write_text_file=args.save,
-        write_transcript=args.transcript,
-        parser_configs=parser_configs,
-        resume=not args.no_resume,
-    )
+    try:
+        output_path = core.file_to_audio(
+            args.file_path,
+            output_path=args.output,
+            mp3_meta=args.mp3_meta,
+            voice=args.voice,
+            speed=args.speed,
+            engine=args.engine,
+            fmt=args.fmt,
+            normalizer=args.normalizer,
+            write_text_file=args.save,
+            write_transcript=args.transcript,
+            parser_configs=parser_configs,
+            resume=not args.no_resume,
+        )
+    except (NormalizerUnavailable, EngineUnavailable) as ex:
+        # A missing model server or API key is a setup problem, not a crash.
+        log.error(str(ex))
+        return 1
 
     extras = [x for x, on in ((".txt", args.save), (".srt", args.transcript)) if on]
     log.info(f"Wrote {output_path}" + (f" (plus {', '.join(extras)})" if extras else ""))

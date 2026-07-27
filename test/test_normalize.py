@@ -290,6 +290,67 @@ class TestNormalizerSelection:
     def test_local_normalizer_resolves_without_contacting_anything(self):
         assert isinstance(norm.get_normalizer("local"), norm.LocalLLMNormalizer)
 
+    def test_every_normalizer_declares_a_name_and_label(self):
+        for name in norm.NORMALIZER_NAMES:
+            n = norm.get_normalizer(name)
+            assert n.name == name
+            assert n.label
+
+
+class TestNormalizerAvailability:
+    """A normalizer that cannot run should say so *before* a conversion starts.
+    Falling back per chunk means a book that quietly wasn't normalized."""
+
+    def test_off_is_always_available(self):
+        assert norm.RulesNormalizer().is_available() == (True, "")
+
+    def test_availability_never_raises(self):
+        for normalizer, ok, reason in norm.available_normalizers():
+            assert isinstance(ok, bool)
+            assert ok or reason, f"{normalizer.name} unavailable with no reason"
+
+    def test_available_normalizers_covers_every_name(self):
+        assert [n.name for n, _ok, _why in norm.available_normalizers()] == list(norm.NORMALIZER_NAMES)
+
+    def test_gemini_without_a_key_names_the_variable(self):
+        ok, reason = norm.GeminiNormalizer(api_key="").is_available()
+        assert ok is False
+        assert "GEMINI_API_KEY" in reason
+
+    def test_gemini_with_a_key_is_available(self):
+        ok, _reason = norm.GeminiNormalizer(api_key="pretend-key").is_available()
+        assert ok is True
+
+    def test_constructing_gemini_without_a_key_no_longer_raises(self):
+        """It used to raise in __init__, which made listing choices impossible."""
+        assert norm.GeminiNormalizer(api_key="").name == "gemini"
+
+    def test_local_reports_an_unreachable_server(self):
+        # Port 1 is reserved and nothing listens there.
+        ok, reason = norm.LocalLLMNormalizer(base_url="http://127.0.0.1:1/v1").is_available()
+        assert ok is False
+        assert "No local model server answered" in reason
+        assert "127.0.0.1:1" in reason
+
+    def test_local_treats_an_http_error_as_reachable(self, monkeypatch):
+        """A 404 on /models still means something is listening, and some servers
+        only implement /chat/completions."""
+        import urllib.error
+
+        def fake_urlopen(*_a, **_kw):
+            raise urllib.error.HTTPError("http://x/models", 404, "Not Found", None, None)
+
+        monkeypatch.setattr(norm.urllib.request, "urlopen", fake_urlopen)
+        assert norm.LocalLLMNormalizer().is_available() == (True, "")
+
+    def test_local_is_available_when_the_probe_succeeds(self, monkeypatch):
+        class FakeResponse:
+            def close(self):
+                pass
+
+        monkeypatch.setattr(norm.urllib.request, "urlopen", lambda *a, **k: FakeResponse())
+        assert norm.LocalLLMNormalizer().is_available() == (True, "")
+
 
 class TestLLMGuardrails:
     """The guardrails matter more than the feature: a model that quietly rewrites

@@ -411,3 +411,10 @@ extract_epub("samples/critique_pure_reason-kant.epub").title
 pip install pytest
 pytest                  # works from the repo root or from inside test/
 ```
+
+GUI tests are skipped automatically if PySide6 isn't installed, so the suite runs
+on a CLI-only setup.
+
+Planned work, known verification gaps and the decisions already settled live in
+[BACKLOG.md](BACKLOG.md). The reasoning behind the current architecture is in the
+[July 2026 review](https://claude.ai/code/artifact/eb774d6e-2e37-4e7e-8d6a-f16a894d467d).

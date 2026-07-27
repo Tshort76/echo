@@ -240,6 +240,14 @@ correctness pieces:
   so static analysis cannot see them; without this the packaged app would silently
   lose Gemini/Cloud/mlx support.
 
+## Backlog and settled decisions
+
+`BACKLOG.md` is the working list: planned work, verification gaps, and a section of
+decisions already made (macOS-only, M4B default, LLM normalization optional, Cloud
+TTS needs ADC rather than an API key) plus explicit non-goals. **Read it before
+proposing direction changes** — several entries exist specifically to stop settled
+questions being re-opened. Update it when work lands.
+
 ## Conventions
 
 - Line length 118 (see `pyproject.toml`).

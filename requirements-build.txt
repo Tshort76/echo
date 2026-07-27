@@ -8,7 +8,7 @@
 #
 # Also install any optional engines you want bundled — echo_gui.spec includes
 # whichever are present and excludes the rest:
-#   pip install -r requirements-google.txt    # Gemini + Cloud TTS
-#   pip install -r requirements-local.txt     # mlx-audio (macOS)
+#   pip install -r requirements-api.txt        # Gemini + Cloud TTS
+#   pip install -r requirements-local-llm.txt  # mlx-audio (macOS)
 -r requirements-gui.txt
 pyinstaller>=6.11          # pin the exact version once a build succeeds on both OSes

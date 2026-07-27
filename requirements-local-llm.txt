@@ -1,6 +1,11 @@
 # On-device synthesis on Apple Silicon (optional).
 #
-#   pip install -r requirements-local.txt
+# This is the "runs a model on your machine" tier — everything the other tiers
+# deliberately keep out. What it installs is a local *TTS* model (Kokoro-82M via
+# mlx-audio), not a local chat LLM; the `local` text normalizer talks to an
+# OpenAI-compatible server over HTTP and needs nothing from this file.
+#
+#   pip install -r requirements-local-llm.txt
 #   python create_audio.py book.epub -e mlx -v bf_emma
 #
 # Requires Python <= 3.13. Verified working on 3.13.7; on 3.14 spaCy cannot build

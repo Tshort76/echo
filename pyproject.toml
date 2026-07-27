@@ -25,7 +25,7 @@ api = ["google-genai==2.14.0", "google-cloud-texttospeech==2.37.0"]
 google = ["google-genai==2.14.0", "google-cloud-texttospeech==2.37.0"]
 # Structured PDF extraction: real heading detection, at the cost of onnxruntime.
 pdf-layout = ["pymupdf4llm==1.28.0"]
-# On-device synthesis on Apple Silicon. See requirements-local.txt for the
+# On-device synthesis on Apple Silicon. See requirements-local-llm.txt for the
 # Kokoro/misaki/Python-3.14 caveat.
 local = ["mlx-audio==0.4.6"]
 # Structured extraction for documents the fast path mangles.

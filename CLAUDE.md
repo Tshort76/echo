@@ -36,7 +36,11 @@ no local LLM; every voice is an API call. Tiers, with measured `site-packages` s
 | `requirements.txt` | 100 MB | core + `--engine edge` |
 | `requirements-api.txt` | 194 MB | + Gemini / Cloud TTS, research, LLM normalization |
 | `requirements-pdf-layout.txt` | +180 MB | + `pymupdf4llm` for PDF heading detection |
-| `requirements-local.txt` | ~2 GB | + mlx-audio on-device synthesis |
+| `requirements-local-llm.txt` | ~2 GB | + mlx-audio on-device synthesis |
+
+The last name is about the *tier* — "things that run on your machine" — not its
+contents: what it installs is a local TTS model (Kokoro), not a chat LLM. The `local`
+text normalizer talks HTTP to a server you run and needs nothing from that file.
 
 `pymupdf4llm` is **not** in the core install: it depends on `pymupdf-layout`, which
 pulls `onnxruntime` (~75 MB) plus `networkx` and `numpy`. An earlier note here called
@@ -46,6 +50,16 @@ and extraction falls back to PyMuPDF's own text layer, recording
 `provenance["backend"] == "pymupdf"` instead of `"pymupdf4llm"`. The book still
 converts; chapters are inferred rather than detected, and tables are narrated rather
 than skipped. Adding a hard dependency back into the core tier needs a real reason.
+
+**It is not strictly better than the fallback, though.** On a *scanned* PDF
+(`resources/demo_data/ocr_3_pages.pdf`) `pymupdf-layout` does its own picture-text
+recovery instead of deferring to OCR, and returns
+`<!, Start of picture text, > IIGroups and StatisticalAt about…` — sentinel markers
+around text with the spaces lost. Sixteen of those markers currently survive into the
+Script and would be spoken. PyMuPDF's Tesseract OCR handles the same file cleanly, so
+the lite tier is *better* here. `--force-ocr` is the workaround; stripping the
+sentinels in `extractors/markdown.py` is the fix (BACKLOG §5). Judge extraction
+quality per-document, not by which backend cost more to install.
 
 Other extras: `requirements-gui.txt` (GUI), `requirements-build.txt` (PyInstaller),
 `pip install docling` (hard PDFs), `brew install tesseract` (OCR for scanned PDFs,
@@ -156,7 +170,7 @@ M4 Pro). Two traps, both of which cost real debugging time:
 `spacy-curated-transformers`, which constrains spaCy; pip backtracks to a spaCy with
 no wheel for the interpreter, builds from source, and fails because that spaCy pins
 `cython<3.0` while modern numpy's Cython headers need ≥3.0. Install a modern spaCy
-directly instead — see `requirements-local.txt`, which documents the whole set.
+directly instead — see `requirements-local-llm.txt`, which documents the whole set.
 
 **Kokoro requires a working espeak fallback, and doesn't say so.** misaki returns
 `phonemes=None` for out-of-dictionary words; Kokoro then raises
@@ -184,7 +198,10 @@ with a division word).
 `extract()` escalates to Docling when a PDF averages under 200 characters per page
 (or when `use_docling` is passed). OCR runs through PyMuPDF's own Tesseract bridge;
 a missing Tesseract is reported once and does not abort a document that has other
-readable pages.
+readable pages. Verified end-to-end on Tesseract 5.5.3 against
+`resources/demo_data/ocr_3_pages.pdf`: 3 pages, 7,294 characters, clean prose, both
+as the automatic no-text-layer fallback and under `force_ocr` (which reports
+`provenance["backend"] == "ocr"`).
 
 ### Project Gutenberg
 

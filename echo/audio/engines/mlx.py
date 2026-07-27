@@ -59,7 +59,7 @@ _KOKORO_VOICES: tuple[str, ...] = (
 _MISAKI_HELP = (
     "This mlx-audio model needs the 'misaki' phonemizer, which requires spaCy — and "
     "spaCy cannot build on Python {py} here. Either run echo on Python 3.13 (see "
-    "requirements-local.txt), or set MLX_TTS_MODEL to a model that needs no "
+    "requirements-local-llm.txt), or set MLX_TTS_MODEL to a model that needs no "
     "phonemizer, e.g. MLX_TTS_MODEL=mlx-community/chatterbox-turbo-4bit"
 )
 

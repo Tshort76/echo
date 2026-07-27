@@ -12,7 +12,7 @@
 #
 #   requirements-api.txt          + Google cloud voices (still no local models)
 #   requirements-pdf-layout.txt   + PDF heading detection (adds ~180 MB, see below)
-#   requirements-local.txt        + on-device synthesis (Apple Silicon, ~2 GB)
+#   requirements-local-llm.txt    + on-device synthesis (Apple Silicon, ~2 GB)
 #   requirements-gui.txt          + the desktop UI
 #   requirements-build.txt        + PyInstaller, for packaging
 #

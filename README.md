@@ -10,15 +10,21 @@ python create_audio.py my_book.epub
 
 python create_audio.py -g "Meditations" --author "Marcus Aurelius"
 # searches Project Gutenberg, downloads it, and narrates it — cover art included
+
+python create_audio.py --research "the history of the marine chronometer" --name chronometer
+# researches the topic, then narrates the report it writes
 ```
 
-- **Bring your own book, or find one.** Point it at a file, or search Project
-  Gutenberg's 75,000 free public-domain books and convert one in a single command.
+- **Three sources.** A file you already have, one of Project Gutenberg's 75,000
+  free public-domain books, or a topic researched on the spot and narrated as a
+  report.
 - **Structure-aware.** Headings become chapters; tables, figures, code blocks,
   footnote markers, running headers and Project Gutenberg boilerplate are left
   out of the narration.
 - **Four engines behind one interface.** Switch with `--engine`; add one without
   touching the pipeline.
+- **Small by default.** The base install is ~100 MB with no ML runtime and no model
+  weights; local synthesis is a tier you opt into.
 - **Safe to leave running.** Every chunk is retried, and an interrupted run
   resumes from the chunks already on disk instead of starting the book again.
 - **CLI or desktop app.** The GUI is an optional layer; the CLI never depends on it.
@@ -51,7 +57,7 @@ Measured `site-packages` sizes on Python 3.13:
 | `requirements.txt` | **100 MB** | Everything below plus `--engine edge`. No local models. |
 | `requirements-api.txt` | **194 MB** | + Gemini and Google Cloud voices, Deep Research, LLM normalization. Still nothing local. |
 | `requirements-pdf-layout.txt` | +180 MB | + real PDF heading detection (see the caveat below) |
-| `requirements-local.txt` | ~2 GB | + `--engine mlx`: on-device synthesis, offline and unmetered (Apple Silicon) |
+| `requirements-local-llm.txt` | ~2 GB | + `--engine mlx`: on-device synthesis, offline and unmetered (Apple Silicon) |
 
 Most people want the first or second line. They are additive, so
 `pip install -r requirements-api.txt` gives you the core plus the cloud engines.
@@ -63,6 +69,11 @@ tables are read aloud rather than skipped. Structured extraction needs
 `pymupdf4llm`, which pulls `pymupdf-layout` → `onnxruntime` — about 180 MB of ONNX
 inference. That is a poor trade if you mostly convert EPUBs with cloud voices, so it
 is opt-in. echo says which backend it used, and how to get the other one.
+
+It is not a strict downgrade either. On a **scanned** PDF the layout backend currently
+returns its own picture-text sentinel markers with the words run together, while the
+lite path's Tesseract OCR produces clean prose — so if you have the layout extra
+installed and a scanned book comes out mangled, pass `--force-ocr`.
 
 ## Other extras
 
@@ -169,7 +180,7 @@ playback, so a ten-hour audiobook synthesizes in roughly half an hour, with no
 network and no metering.
 
 ```bash
-pip install -r requirements-local.txt
+pip install -r requirements-local-llm.txt
 python create_audio.py book.epub -e mlx -v bf_emma
 ```
 
@@ -179,7 +190,7 @@ python create_audio.py book.epub -e mlx -v bf_emma
 > `--list-engines` tells you which case you're in.
 >
 > **Don't `pip install 'misaki[en]'`** — that extra sends pip backtracking into an
-> unbuildable old spaCy. `requirements-local.txt` lists the working set and explains
+> unbuildable old spaCy. `requirements-local-llm.txt` lists the working set and explains
 > why, including the espeak fallback that Kokoro needs but doesn't ask for.
 
 # Getting a book from Project Gutenberg
@@ -219,8 +230,8 @@ Front matter, the licence appendix, and title-page fragments are stripped, and a
 byline heading never becomes a chapter name. `Meditations` (#2680) comes out as 17
 chapters — the introduction, the twelve books, and the appendices.
 
-In the desktop app, the **Gutenberg…** button beside the input file picker opens
-the same search, and fills in the metadata fields for you.
+In the desktop app, **Project Gutenberg…** on the source button opens the same
+search, and fills in the name and metadata fields for you.
 
 # Researching a topic
 
@@ -344,8 +355,13 @@ python echo_gui.py
 
 A cross-platform PySide6 UI with everything the CLI can do:
 
-- **Main form** — input file (or a **Gutenberg…** search), engine, voice with
-  language/gender filters and a preview button, speed, output format, output path.
+- **One source button, three sources.** It is a split button: clicking it browses
+  for a file, and its menu offers **Project Gutenberg…** and **Deep Research…**.
+  Each opens its own dialog and fills the read-only field beside it with a
+  description of what you chose — a path, a book and edition, or the topic you
+  asked about.
+- **Main form** — that source, then engine, voice with language/gender filters and
+  a preview button, speed, output format, output path.
 - **Behind the gear** — metadata and cover art; extraction options (PDF page range,
   force OCR, Docling); text normalization; save-text, transcript, resume and
   verbosity.
@@ -375,8 +391,8 @@ source .venv-build/bin/activate          # Windows: .venv-build\Scripts\activate
 
 # 2. Install build dependencies, plus any optional engines you want bundled
 pip install -r requirements-build.txt
-pip install -r requirements-google.txt   # optional
-pip install -r requirements-local.txt    # optional (macOS)
+pip install -r requirements-api.txt        # optional: cloud voices
+pip install -r requirements-local-llm.txt  # optional: mlx voices (macOS)
 
 # 3. Vendor a static ffmpeg into vendor/ (bundled into the app)
 python packaging/fetch_ffmpeg.py
@@ -429,7 +445,7 @@ core.file_to_audio(
 import echo.core as core
 
 # 1. Parse into a structured Document (headings, tables, figures, page numbers)
-doc = core.extract_document("resources/your_book.pdf")
+doc = core.extract_document("resources/demo_data/america_against_america_sample.pdf")
 doc.title, doc.author, doc.char_count
 [(b.kind.value, b.text[:40]) for b in doc.blocks[:5]]
 
@@ -439,7 +455,7 @@ script = core.build_script(doc, engine_name="edge")
 len(script.utterances())
 
 # 3. Read the narratable text as a plain string
-core.convert_to_text("resources/your_book.epub")[:200]
+core.convert_to_text("resources/demo_data/critique_pure_reason-kant.epub")[:200]
 ```
 
 ## Choosing a voice
@@ -510,11 +526,12 @@ from echo.extractors.misc import extract_epub
 from echo.extractors.pdfs import extract_annotations, extract_pdf
 
 # Highlights and notes from a marked-up PDF
-extract_annotations("samples/marked_up.pdf")
+extract_annotations("your_marked_up.pdf")
 # -> [{'type': 'Highlight', 'text': '...', 'color': {...}, 'note': None, 'page': 4}]
 
-extract_pdf("samples/cybernetics.pdf", first_page=30, last_page=30).as_text()
-extract_epub("samples/critique_pure_reason-kant.epub").title
+extract_pdf("resources/demo_data/cybernetics_one_page.pdf").as_text()
+extract_epub("resources/demo_data/critique_pure_reason-kant.epub").title
+# -> 'The Critique of Pure Reason'
 ```
 
 # Development
@@ -524,8 +541,11 @@ pip install pytest
 pytest                  # works from the repo root or from inside test/
 ```
 
-GUI tests are skipped automatically if PySide6 isn't installed, so the suite runs
-on a CLI-only setup.
+The suite is **tier-aware**: tests that need an optional dependency skip themselves
+rather than fail, so it passes on the lite install as well as a full one (285 tests
+on lite, 345 with every extra). That matters because six tests once quietly assumed
+`pymupdf4llm` and `google-genai` were present — nothing had ever run them on a
+minimal environment.
 
 Planned work, known verification gaps and the decisions already settled live in
 [BACKLOG.md](BACKLOG.md). The reasoning behind the current architecture is in the

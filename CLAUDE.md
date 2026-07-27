@@ -28,10 +28,28 @@ pip install -r requirements.txt
 brew install ffmpeg                  # required to join audio / write M4B
 ```
 
-Optional extras: `requirements-google.txt` (Gemini + Cloud TTS engines),
-`requirements-local.txt` (mlx-audio, Apple Silicon), `requirements-gui.txt` (GUI),
-`requirements-build.txt` (PyInstaller), `pip install docling` (hard PDFs),
-`brew install tesseract` (OCR for scanned PDFs, via PyMuPDF's built-in support).
+**The core install is deliberately model-free** — ~100 MB, no ML runtime, no weights,
+no local LLM; every voice is an API call. Tiers, with measured `site-packages` sizes:
+
+| File | Size | Adds |
+| --- | --- | --- |
+| `requirements.txt` | 100 MB | core + `--engine edge` |
+| `requirements-api.txt` | 194 MB | + Gemini / Cloud TTS, research, LLM normalization |
+| `requirements-pdf-layout.txt` | +180 MB | + `pymupdf4llm` for PDF heading detection |
+| `requirements-local.txt` | ~2 GB | + mlx-audio on-device synthesis |
+
+`pymupdf4llm` is **not** in the core install: it depends on `pymupdf-layout`, which
+pulls `onnxruntime` (~75 MB) plus `networkx` and `numpy`. An earlier note here called
+it "near-zero added weight" — that was true of an older release and is now wrong by
+about 180 MB. When it is absent, `extractors/pdfs.py::layout_markdown()` returns None
+and extraction falls back to PyMuPDF's own text layer, recording
+`provenance["backend"] == "pymupdf"` instead of `"pymupdf4llm"`. The book still
+converts; chapters are inferred rather than detected, and tables are narrated rather
+than skipped. Adding a hard dependency back into the core tier needs a real reason.
+
+Other extras: `requirements-gui.txt` (GUI), `requirements-build.txt` (PyInstaller),
+`pip install docling` (hard PDFs), `brew install tesseract` (OCR for scanned PDFs,
+via PyMuPDF's built-in support).
 
 See the README for the full `.env` reference. The env knobs most likely to matter:
 `DEFAULT_ENGINE`, `DEFAULT_VOICE`, `DEFAULT_SPEED`, `DEFAULT_FORMAT`,

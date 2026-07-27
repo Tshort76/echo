@@ -97,7 +97,8 @@ class TestPdf:
     def test_a_text_pdf_extracts_structure(self, demo_data):
         doc = core.extract_document(demo_data / "america_against_america_sample.pdf")
         assert doc.char_count > 1000
-        assert doc.provenance["backend"] in ("pymupdf4llm", "docling")
+        # "pymupdf" is the lite install's text-layer fallback and equally valid.
+        assert doc.provenance["backend"] in ("pymupdf4llm", "pymupdf", "docling")
         assert all(b.page is not None for b in doc.blocks if b.kind != BlockKind.PAGE_ARTIFACT)
 
     def test_a_page_range_limits_extraction(self, demo_data):
@@ -108,6 +109,38 @@ class TestPdf:
         )
         assert one.char_count <= full.char_count
         assert one.provenance["pages"] == 1
+
+    def test_a_pdf_still_converts_without_the_layout_backend(self, demo_data, monkeypatch):
+        """The lite install has no pymupdf4llm (it would drag in onnxruntime), so
+        PDFs must fall back to PyMuPDF's own text layer rather than failing."""
+        import echo.extractors.pdfs as pdfs
+
+        monkeypatch.setattr(pdfs, "layout_markdown", lambda *_a, **_kw: None)
+        doc = core.extract_document(demo_data / "america_against_america_sample.pdf")
+        assert doc.provenance["backend"] == "pymupdf"
+        assert doc.char_count > 1000
+        assert core.build_script(doc).chapters  # still narratable
+
+    def test_the_layout_backend_is_recorded_when_present(self, demo_data):
+        pytest.importorskip("pymupdf4llm", reason="layout extras not installed")
+        doc = core.extract_document(demo_data / "america_against_america_sample.pdf")
+        assert doc.provenance["backend"] in ("pymupdf4llm", "docling")
+
+    def test_layout_markdown_returns_none_rather_than_raising_when_absent(self, monkeypatch):
+        """A missing optional dependency is a downgrade, not an error."""
+        import builtins
+
+        import echo.extractors.pdfs as pdfs
+
+        real_import = builtins.__import__
+
+        def no_pymupdf4llm(name, *args, **kwargs):
+            if name == "pymupdf4llm":
+                raise ImportError("simulated: not installed")
+            return real_import(name, *args, **kwargs)
+
+        monkeypatch.setattr(builtins, "__import__", no_pymupdf4llm)
+        assert pdfs.layout_markdown(object(), [0]) is None
 
     def test_a_scanned_pdf_without_ocr_says_what_to_install(self, demo_data):
         """It must not fail with a bare Tesseract traceback."""

@@ -104,10 +104,28 @@ class TestEdgeEngine:
 
 class TestGoogleEngines:
     def test_gemini_says_what_is_missing_without_a_key(self):
-        engine = GeminiEngine(api_key=None)
-        ok, reason = engine.is_available()
-        if not ok:
-            assert "GEMINI_API_KEY" in reason
+        # On the lite install the SDK is absent, so the reason names that instead —
+        # also correct, just a different missing piece.
+        pytest.importorskip("google.genai", reason="google-genai not installed (lite tier)")
+        ok, reason = GeminiEngine(api_key="").is_available()
+        assert ok is False
+        assert "GEMINI_API_KEY" in reason
+
+    def test_gemini_says_what_to_install_when_the_sdk_is_absent(self, monkeypatch):
+        """The lite install has no google-genai; the message should say so."""
+        import builtins
+
+        real_import = builtins.__import__
+
+        def no_genai(name, *args, **kwargs):
+            if name.startswith("google.genai"):
+                raise ImportError("simulated: not installed")
+            return real_import(name, *args, **kwargs)
+
+        monkeypatch.setattr(builtins, "__import__", no_genai)
+        ok, reason = GeminiEngine(api_key="a-key").is_available()
+        assert ok is False
+        assert "google-genai" in reason
 
     def test_gemini_offers_the_prebuilt_voices(self):
         voices = GeminiEngine(api_key="x").voices()

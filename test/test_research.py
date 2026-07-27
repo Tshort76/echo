@@ -128,7 +128,25 @@ class TestAvailability:
         assert DeepResearcher(api_key="").is_available()[0] is False
 
     def test_a_key_is_enough_to_be_available(self):
+        pytest.importorskip("google.genai", reason="google-genai not installed (lite tier)")
         assert DeepResearcher(api_key="pretend-key").is_available() == (True, "")
+
+    def test_a_missing_sdk_says_what_to_install(self, monkeypatch):
+        """On the lite install there is no google-genai, and the message should name
+        it rather than blaming the key."""
+        import builtins
+
+        real_import = builtins.__import__
+
+        def no_genai(name, *args, **kwargs):
+            if name.startswith("google.genai"):
+                raise ImportError("simulated: not installed")
+            return real_import(name, *args, **kwargs)
+
+        monkeypatch.setattr(builtins, "__import__", no_genai)
+        ok, reason = DeepResearcher(api_key="a-key").is_available()
+        assert ok is False
+        assert "google-genai" in reason
 
     def test_check_available_raises_the_typed_error(self):
         with pytest.raises(ResearchUnavailable):

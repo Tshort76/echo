@@ -326,6 +326,7 @@ class TestNormalizerAvailability:
         assert "GEMINI_API_KEY" in reason
 
     def test_gemini_with_a_key_is_available(self):
+        pytest.importorskip("google.genai", reason="google-genai not installed (lite tier)")
         ok, _reason = norm.GeminiNormalizer(api_key="pretend-key").is_available()
         assert ok is True
 

@@ -1,0 +1,19 @@
+# The common case: every voice from an API call, nothing running locally.
+#
+#     pip install -r requirements-api.txt
+#
+# ~190 MB, no machine-learning runtimes, no model weights, no local LLM. Adds the
+# Google engines to the core install:
+#
+#   --engine edge            free, no credentials, nothing to configure  (in core)
+#   --engine gemini          needs GEMINI_API_KEY
+#   --engine google-cloud    needs Application Default Credentials; this is the one
+#                            with the permanent free tier (4M chars/month)
+#   --research "TOPIC"       Gemini Deep Research, needs GEMINI_API_KEY
+#   --normalize gemini       LLM text normalization via the same key
+#
+# See requirements-google.txt for the authentication details — the two Google
+# engines authenticate differently, which is easy to trip over.
+-r requirements.txt
+google-genai==2.14.0
+google-cloud-texttospeech==2.37.0

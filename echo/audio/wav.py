@@ -30,16 +30,36 @@ def write_pcm16_wav(pcm: bytes, path: Path, rate: int, channels: int = 1) -> Non
     Path(path).write_bytes(header + pcm)
 
 
+def _floats_to_pcm16(samples) -> bytes:
+    """Convert floats in [-1, 1] to little-endian 16-bit PCM.
+
+    Uses numpy when it is available — it always is alongside a local engine, and it
+    is far quicker over a few hundred thousand samples. The stdlib path keeps this
+    module usable on the lite install, which has no numpy at all, and expects a flat
+    iterable of floats.
+    """
+    try:
+        import numpy as np  # noqa: PLC0415
+    except ImportError:
+        import array
+        import sys
+
+        # Clip: a model can emit values slightly outside the range, and wrapping
+        # them would turn a loud passage into a burst of noise.
+        pcm = array.array("h", (int(max(-1.0, min(1.0, float(s))) * 32767) for s in samples))
+        if sys.byteorder == "big":
+            pcm.byteswap()
+        return pcm.tobytes()
+
+    flat = np.asarray(samples, dtype=np.float32).reshape(-1)
+    return (np.clip(flat, -1.0, 1.0) * 32767.0).astype("<i2").tobytes()
+
+
 def write_float_wav(samples, path: Path, rate: int, channels: int = 1) -> None:
     """Write a float array in [-1, 1] as 16-bit PCM WAV.
 
-    ``samples`` is anything numpy can turn into a 1-D float array — including an
-    mlx array, which supports the buffer protocol.
+    With numpy present, ``samples`` is anything it can turn into a 1-D float array —
+    including an mlx array, which supports the buffer protocol. Without it, pass a
+    flat iterable of floats.
     """
-    import numpy as np  # noqa: PLC0415  (numpy arrives with the local engines)
-
-    flat = np.asarray(samples, dtype=np.float32).reshape(-1)
-    # Guard against a model emitting values slightly outside the range.
-    clipped = np.clip(flat, -1.0, 1.0)
-    pcm = (clipped * 32767.0).astype("<i2").tobytes()
-    write_pcm16_wav(pcm, path, rate=rate, channels=channels)
+    write_pcm16_wav(_floats_to_pcm16(samples), path, rate=rate, channels=channels)

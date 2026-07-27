@@ -13,7 +13,6 @@ from pathlib import Path
 from typing import Optional
 
 import pymupdf as pp
-import pymupdf4llm
 
 from echo.document import Block, Document
 from echo.extractors.markdown import blocks_from_markdown
@@ -57,6 +56,34 @@ def ocr_page(page: pp.Page, dpi: int = 200) -> str:
         raise RuntimeError(_OCR_HELP) from ex
 
 
+def layout_markdown(document: pp.Document, pages: list[int]) -> list[dict] | None:
+    """Per-page markdown from ``pymupdf4llm``, or ``None`` if it isn't installed.
+
+    Kept optional because pymupdf4llm pulls ``pymupdf-layout`` → ``onnxruntime``,
+    roughly 180 MB of ONNX inference machinery. That is a poor deal for someone who
+    only wants cloud voices, so the lite install leaves it out and PDFs fall back to
+    PyMuPDF's own text extraction — see :func:`extract_pdf`.
+    """
+    try:
+        import pymupdf4llm  # noqa: PLC0415
+    except ImportError:
+        log.info(
+            "pymupdf4llm is not installed, so PDF headings won't be detected and "
+            "chapters will be coarser. Install it with "
+            "`pip install -r requirements-pdf-layout.txt` for structured extraction."
+        )
+        return None
+
+    return pymupdf4llm.to_markdown(
+        document,
+        pages=pages,
+        page_chunks=True,
+        ignore_images=True,
+        ignore_graphics=True,
+        show_progress=False,
+    )
+
+
 def _page_range(document: pp.Document, first_page: int | None, last_page: int | None) -> list[int]:
     """Resolve a 1-indexed inclusive page range to 0-indexed page numbers."""
     first = max(1, first_page or 1)
@@ -81,16 +108,10 @@ def extract_pdf(
         log.info(f"Extracting {len(pages)} page(s) of content from {pdf_path}")
 
         blocks: list[Block] = []
-        chunks: list[dict] = []
+        chunks: list[dict] | None = None
         if not force_ocr:
-            chunks = pymupdf4llm.to_markdown(
-                document,
-                pages=pages,
-                page_chunks=True,
-                ignore_images=True,
-                ignore_graphics=True,
-                show_progress=False,
-            )
+            chunks = layout_markdown(document, pages)
+        has_layout = bool(chunks)
 
         ocr_error: str | None = None
         for offset, page_no in enumerate(pages):
@@ -101,6 +122,17 @@ def extract_pdf(
             if md.strip():
                 blocks.extend(blocks_from_markdown(md, page=page_no + 1))
                 continue
+
+            # No layout backend: read the page's own text layer. Headings are then
+            # inferred by blocks_from_plain_text's conservative heuristic rather
+            # than detected, so chapters are coarser but the book still converts.
+            if chunks is None and not force_ocr:
+                plain = _clean_up_text(document[page_no].get_text("text")) or ""
+                if plain.strip():
+                    for block in blocks_from_plain_text(plain):
+                        block.page = page_no + 1
+                        blocks.append(block)
+                    continue
 
             # No text layer on this page: fall back to OCR. A missing Tesseract
             # is reported once and does not abort the document — a PDF with a few
@@ -134,7 +166,7 @@ def extract_pdf(
         author=(meta.get("author") or "").strip() or None,
         source_path=pdf_path,
         provenance={
-            "backend": "pymupdf4llm" if not force_ocr else "ocr",
+            "backend": "ocr" if force_ocr else ("pymupdf4llm" if has_layout else "pymupdf"),
             "pages": len(pages),
             "ocr_pages": ocr_pages,
             "ocr_error": ocr_error,

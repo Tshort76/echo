@@ -1,0 +1,20 @@
+# Structured PDF extraction (optional, ~180 MB).
+#
+#     pip install -r requirements-pdf-layout.txt
+#
+# Without this, echo reads a PDF's own text layer: the book converts fine, but
+# chapter breaks are *inferred* from short shouted lines rather than *detected* from
+# real headings, so a PDF with proper headings yields coarser chapters than it should.
+#
+# With it, pymupdf4llm renders each page as markdown and echo's markdown parser picks
+# up headings, tables and figures — tables and figures are then excluded from the
+# narration instead of being read aloud as noise.
+#
+# The cost: pymupdf4llm depends on pymupdf-layout, which pulls onnxruntime (~75 MB),
+# networkx and numpy — an ONNX layout-detection runtime. That is why this is not in
+# the core install; someone converting EPUBs with cloud voices should not pay for a
+# local inference engine.
+#
+# Worth it if you convert PDFs often and care about chapter marks. Skip it otherwise.
+-r requirements.txt
+pymupdf4llm==1.28.0

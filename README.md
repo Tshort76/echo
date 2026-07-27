@@ -38,18 +38,42 @@ brew install ffmpeg                  # macOS
 # Windows: download from https://ffmpeg.org and put it on PATH
 ```
 
-## Optional extras
+That's the **lite** install: ~100 MB, with **no machine-learning runtimes, no model
+weights and no local LLM**. Every voice is an API call, and `--engine edge` needs no
+credentials at all, so this works out of the box.
+
+## Choosing a tier
+
+Measured `site-packages` sizes on Python 3.13:
+
+| Install | Size | What you get |
+| --- | --- | --- |
+| `requirements.txt` | **100 MB** | Everything below plus `--engine edge`. No local models. |
+| `requirements-api.txt` | **194 MB** | + Gemini and Google Cloud voices, Deep Research, LLM normalization. Still nothing local. |
+| `requirements-pdf-layout.txt` | +180 MB | + real PDF heading detection (see the caveat below) |
+| `requirements-local.txt` | ~2 GB | + `--engine mlx`: on-device synthesis, offline and unmetered (Apple Silicon) |
+
+Most people want the first or second line. They are additive, so
+`pip install -r requirements-api.txt` gives you the core plus the cloud engines.
+
+**The PDF caveat.** The lite install reads a PDF's own text layer: the book converts
+fine, but chapter breaks are *inferred* from short shouted lines rather than
+*detected* from real headings, so a structured PDF yields coarser chapters, and its
+tables are read aloud rather than skipped. Structured extraction needs
+`pymupdf4llm`, which pulls `pymupdf-layout` → `onnxruntime` — about 180 MB of ONNX
+inference. That is a poor trade if you mostly convert EPUBs with cloud voices, so it
+is opt-in. echo says which backend it used, and how to get the other one.
+
+## Other extras
 
 | Extra | Install | What it adds |
 | --- | --- | --- |
-| Google engines | `pip install -r requirements-google.txt` | `--engine gemini`, `--engine google-cloud`, `--normalize gemini` |
-| Local synthesis | `pip install -r requirements-local.txt` | `--engine mlx` (Apple Silicon, offline) |
 | Desktop GUI | `pip install -r requirements-gui.txt` | `python echo_gui.py` |
 | Hard documents | `pip install docling` | `--docling` for PDFs the fast path mangles |
 | Scanned PDFs | `brew install tesseract` | OCR for pages with no text layer |
 
 Scanned-PDF OCR goes through PyMuPDF's built-in Tesseract support, so Poppler,
-`pdf2image` and OpenCV are no longer needed.
+`pdf2image` and OpenCV are not needed.
 
 ## `.env` configuration
 

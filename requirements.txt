@@ -1,18 +1,31 @@
-# Core dependencies for the CLI and the echo library.
+# Core dependencies — the lite install. ~100 MB, and deliberately contains no
+# machine-learning runtimes, no model weights and no local LLM: every voice comes
+# from an API call.
+#
 # Versions are pinned because this project is frozen into a shipped app — the
 # binary you build next month should be the one you tested.
 #
-# Optional extras live in sibling files:
-#   requirements-google.txt   Gemini TTS + Google Cloud TTS engines
-#   requirements-local.txt    on-device synthesis via mlx-audio (Apple Silicon)
-#   requirements-gui.txt      the desktop UI
-#   requirements-build.txt    packaging with PyInstaller
+#     pip install -r requirements.txt
+#     python create_audio.py book.epub          # edge-tts voices, no credentials
+#
+# Optional extras, each in its own file:
+#
+#   requirements-api.txt          + Google cloud voices (still no local models)
+#   requirements-pdf-layout.txt   + PDF heading detection (adds ~180 MB, see below)
+#   requirements-local.txt        + on-device synthesis (Apple Silicon, ~2 GB)
+#   requirements-gui.txt          + the desktop UI
+#   requirements-build.txt        + PyInstaller, for packaging
+#
+# Note on PDFs: this tier reads a PDF's own text layer, which converts fine but
+# infers chapter breaks rather than detecting headings. Structured extraction lives
+# in requirements-pdf-layout.txt because pymupdf4llm pulls pymupdf-layout ->
+# onnxruntime, about 180 MB of ONNX inference — a poor trade if you only want
+# cloud voices.
 
 python-dotenv==1.2.2        # .env configuration
 edge-tts==7.2.8             # default TTS engine (Microsoft Edge voices)
 mutagen==1.48.1             # ID3/MP4 tags, cover art, duration probing
-pymupdf==1.28.0             # PDF parsing and built-in Tesseract OCR
-pymupdf4llm==1.28.0         # structured markdown from PDFs
+pymupdf==1.28.0             # PDF text extraction and built-in Tesseract OCR
 EbookLib==0.20              # EPUB parsing
 beautifulsoup4==4.15.0      # EPUB/HTML text extraction
 

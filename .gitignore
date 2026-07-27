@@ -16,3 +16,4 @@ resources/*
 build/
 dist/
 vendor/
+.venv-build/

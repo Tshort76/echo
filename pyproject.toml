@@ -32,6 +32,10 @@ echo-audio = "create_audio:main"
 
 [tool.setuptools]
 packages = ["echo", "echo.audio", "echo.audio.engines", "echo.extractors"]
+# The CLI entry points are top-level modules, not packages. Without listing them
+# here they are left out of an install, and the `echo-audio` console script fails
+# with ModuleNotFoundError: create_audio.
+py-modules = ["create_audio", "bulk_generate", "echo_gui"]
 
 [tool.pytest.ini_options]
 testpaths = ["test"]

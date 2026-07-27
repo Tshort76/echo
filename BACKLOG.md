@@ -49,24 +49,57 @@ run since the refactor.
       signature, which is how the GUI and backend drift apart silently.
 - [ ] **Exercise `--engine gemini` against the real API.** (S)
       Written, unit-tested, never made a call. Needs `GEMINI_API_KEY`.
-- [ ] **Exercise `--engine google-cloud` end-to-end.** (S)
-      Reports `ready` because ADC is present on this machine, but has never
-      synthesized a byte. This is the free-tier path — 4M characters/month — so it
-      is the one worth having working.
-- [ ] **Run `--engine mlx` through echo's own wrapper.** (S)
-      Raw `mlx-audio` generation was verified (Chatterbox Turbo, RTF 0.74), but
-      `MlxEngine.synthesize()` itself has never executed.
-- [ ] **Rebuild the packaged app.** (M)
-      `echo_gui.spec`'s optional-engine probing has only been syntax-checked; no
-      PyInstaller run since the refactor, and `dist/` is empty.
+- [x] ~~**Exercise `--engine google-cloud` end-to-end.**~~ Works — the free-tier path
+      is real, via the ADC credentials already on this machine.
+- [x] ~~**Run `--engine mlx` through echo's own wrapper.**~~ Works with
+      `MLX_TTS_MODEL=mlx-community/chatterbox-turbo-4bit` on Python 3.14.
+- [x] ~~**Rebuild the packaged app.**~~ Built on Python 3.13 (`.venv-build`) →
+      `dist/Echo.app`, 357 MB. Launches cleanly, finds its bundled ffmpeg and
+      `voices.csv`. The spec's engine probing works: `google.genai` (311 modules) and
+      `google.cloud.texttospeech` (26) are compiled into the PYZ archive, `mlx_audio`
+      correctly excluded since it wasn't in the build venv.
+      **Note:** they live *inside* the archive, not as directories on disk — check
+      the PYZ, not the filesystem, when verifying a future build.
 - [ ] **Exercise the OCR path.** (S) Needs `brew install tesseract`.
       `pdfs.ocr_page()` has only ever been seen failing with its "not installed"
       message. `resources/demo_data/ocr_3_pages.pdf` is the fixture.
 - [ ] **Exercise the Docling escalation.** (S) Needs `pip install docling`.
       `_try_docling()` has only been seen degrading gracefully, never succeeding.
-- [ ] **Run `bulk_generate.py` once.** (S) Rewritten during P0, never executed, no tests.
-- [ ] **Verify `pip install -e .` and the `echo-audio` console script.** (S)
-      `pyproject.toml` declares both; neither has been tried.
+- [x] ~~**Run `bulk_generate.py` once.**~~ Works, including `--rename`.
+- [x] ~~**Verify `pip install -e .` and the `echo-audio` console script.**~~ This found
+      a real bug: `pyproject.toml` listed only *packages*, so the top-level
+      `create_audio` module was never installed and `echo-audio` died with
+      `ModuleNotFoundError`. Fixed with `py-modules`; verified from an unrelated cwd.
+- [ ] **Build a second app bundle with `mlx-audio` included.** (M) The current
+      bundle has the three cloud engines only. On Python 3.13 `misaki[en]` installs
+      (spaCy has 3.13 wheels), so a build venv with `requirements-local.txt` +
+      `misaki[en]` should give a packaged app that runs **Kokoro** locally. Untested,
+      and the riskiest bundling job so far — mlx and transformers bring hidden
+      imports and data files.
+
+- [ ] **A round-trip integrity test: text → speech → text.** (M) The one thing no
+      current test does is check that the audio actually *contains the words*.
+      Everything else verifies plumbing — chunk counts, durations, chapter marks —
+      so a chunk dropped or assembled out of order would still pass.
+
+      Design matters here, or it will be flaky. Do **not** compute word error rate
+      against arbitrary prose: ASR disagrees about numbers, punctuation, homophones
+      and proper nouns, so any threshold is a guess that rots. Instead seed the
+      passage with distinctive *ordinal* markers — NATO words work well — and assert
+      that all of them appear **and in the right order**. That is a decidable check,
+      and it is exactly sensitive to the failures that matter (a lost chunk, a
+      misordered concat, normalization eating text).
+
+      Prototyped this far: a 6-marker script at `chunk_size=120` produces 12 chunks
+      and a correct MP3, so the synthesis half is proven. The ASR half needs a
+      Whisper model that ships a HuggingFace processor — `mlx-community/whisper-tiny`
+      and `whisper-base-mlx-q4` do **not** (`processor=False`, and `generate()` then
+      raises). `mlx-community/whisper-large-v3-turbo-asr-fp16` is mlx-audio's own
+      default and probably does, but it is ~1.6 GB to fetch.
+
+      Keep it out of the default suite — mark it `integration` and let `pytest -m
+      integration` opt in. It needs a model download, a network round trip for
+      `edge`, and tens of seconds.
 
 ## 2. Engines
 

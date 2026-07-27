@@ -1,2 +1,0 @@
-[console_scripts]
-echo-audio = create_audio:main

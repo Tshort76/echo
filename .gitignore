@@ -17,3 +17,4 @@ build/
 dist/
 vendor/
 .venv-build/
+*.egg-info/

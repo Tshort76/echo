@@ -15,6 +15,7 @@ from __future__ import annotations
 import inspect
 import logging
 import os
+from pathlib import Path
 
 import pytest
 
@@ -32,7 +33,8 @@ from PySide6.QtWidgets import (  # noqa: E402
 )
 
 import echo.core as core  # noqa: E402
-from gui.app import GutenbergDialog, MainWindow  # noqa: E402
+from gui.app import GutenbergDialog, MainWindow, ResearchDialog  # noqa: E402
+from gui.sources import SourceSelection, slugify  # noqa: E402
 from gui.workers import ConversionWorker  # noqa: E402
 
 
@@ -62,6 +64,11 @@ def select_engine(tab, name: str) -> None:
     tab.engine_combo.setCurrentIndex(engine_ids(tab).index(name))
 
 
+def select_file(tab, path) -> None:
+    """Choose a plain file as the source, as the Browse action would."""
+    tab._set_source(SourceSelection.from_file(path))
+
+
 class TestLayout:
     def test_the_window_is_a_single_convert_view(self, window):
         assert window.findChild(QTabWidget) is None
@@ -69,8 +76,119 @@ class TestLayout:
     def test_the_play_button_waits_for_a_result(self, window):
         assert window.play_btn.isEnabled() is False
 
-    def test_gutenberg_search_is_reachable(self, window):
-        assert window.convert_tab.gutenberg_btn.isEnabled()
+    def test_the_input_field_is_read_only(self, window):
+        """It describes the source rather than being typed into."""
+        assert window.convert_tab.input_edit.isReadOnly()
+
+
+class TestSourceSplitButton:
+    def test_it_offers_all_three_sources(self, window):
+        actions = window.convert_tab.source_btn.menu().actions()
+        assert [a.text() for a in actions] == ["Browse…", "Project Gutenberg…", "Deep Research…"]
+
+    def test_browse_is_the_default_action(self, window):
+        tab = window.convert_tab
+        assert tab.source_btn.defaultAction() is tab.browse_action
+        assert tab.source_btn.defaultAction().text() == "Browse…"
+
+    def test_it_is_a_split_button(self, window):
+        from PySide6.QtWidgets import QToolButton
+
+        assert window.convert_tab.source_btn.popupMode() == QToolButton.ToolButtonPopupMode.MenuButtonPopup
+
+
+class TestSourceSelection:
+    """The display strings are the whole point of the read-only field."""
+
+    def test_a_file_shows_its_path(self, tmp_path):
+        source = SourceSelection.from_file(tmp_path / "my_book.epub")
+        assert source.kind == "file"
+        assert source.name == "my_book"
+        assert source.display == str(tmp_path / "my_book.epub")
+
+    def test_gutenberg_shows_the_book_and_search_details(self, tmp_path):
+        from echo.gutenberg import DownloadedBook, GutenbergBook
+
+        book = GutenbergBook(id=2680, title="Meditations", authors=("Marcus Aurelius",))
+        downloaded = DownloadedBook(book=book, path=tmp_path / "pg2680_meditations.epub", fmt="epub")
+        source = SourceSelection.from_gutenberg(downloaded, name="meditations", language="English")
+        assert source.kind == "gutenberg"
+        assert source.name == "meditations"
+        for fragment in ("Gutenberg #2680", "Meditations", "Marcus Aurelius", "English", "EPUB"):
+            assert fragment in source.display, fragment
+
+    def test_gutenberg_falls_back_to_a_slug_when_no_name_given(self, tmp_path):
+        from echo.gutenberg import DownloadedBook, GutenbergBook
+
+        book = GutenbergBook(id=1, title="Pride and Prejudice", authors=("Jane Austen",))
+        downloaded = DownloadedBook(book=book, path=tmp_path / "x.epub", fmt="epub")
+        assert SourceSelection.from_gutenberg(downloaded, name="").name == "pride_prejudice"
+
+    def test_research_shows_the_topic_that_was_sent(self, tmp_path):
+        from echo.research import ResearchResult
+
+        result = ResearchResult(
+            name="chronometer",
+            topic="the history of the marine chronometer",
+            agent="deep-research-preview-04-2026",
+            text="body",
+            path=tmp_path / "chronometer.md",
+        )
+        source = SourceSelection.from_research(result)
+        assert source.kind == "research"
+        assert source.name == "chronometer"
+        assert "history of the marine chronometer" in source.display
+        assert "deep-research-preview-04-2026" in source.display
+
+    def test_a_very_long_topic_is_trimmed_for_display(self, tmp_path):
+        from echo.research import ResearchResult
+
+        result = ResearchResult(
+            name="x", topic="word " * 200, agent="a", text="b", path=tmp_path / "x.md"
+        )
+        assert len(SourceSelection.from_research(result).display) < 220
+
+    def test_the_output_filename_follows_the_source_name(self, window, tmp_path):
+        """A Gutenberg cache file is named pg2680_…; the audio should not be."""
+        from echo.gutenberg import DownloadedBook, GutenbergBook
+
+        cached = tmp_path / "pg2680_meditations.epub"
+        cached.write_bytes(b"x")
+        book = GutenbergBook(id=2680, title="Meditations", authors=("Marcus Aurelius",))
+        downloaded = DownloadedBook(book=book, path=cached, fmt="epub")
+        window.convert_tab._set_source(
+            SourceSelection.from_gutenberg(downloaded, name="meditations")
+        )
+        assert Path(window.convert_tab.output_edit.text()).name == "meditations.m4b"
+
+    def test_source_metadata_prefills_but_does_not_override(self, window, tmp_path):
+        from echo.research import ResearchResult
+
+        tab = window.convert_tab
+        tab.settings.title_edit.setText("My Own Title")
+        report = tmp_path / "r.md"
+        report.write_text("# R\n\nProse.\n", encoding="utf-8")
+        tab._set_source(
+            SourceSelection.from_research(
+                ResearchResult(name="r", topic="t", agent="a", text="b", path=report)
+            )
+        )
+        assert tab.settings.title_edit.text() == "My Own Title"
+        assert tab.settings.author_edit.text() == "Gemini Deep Research"
+
+
+class TestSlugify:
+    @pytest.mark.parametrize(
+        "text,expected",
+        [
+            ("the history of the marine chronometer", "history_marine_chronometer"),
+            ("Pride and Prejudice", "pride_prejudice"),
+            ("", "research"),
+            ("!!! ???", "research"),
+        ],
+    )
+    def test_it_keeps_the_meaningful_words(self, text, expected):
+        assert slugify(text) == expected
 
 
 class TestEngineDropdown:
@@ -107,7 +225,7 @@ class TestFormat:
 
     def test_the_output_suffix_follows_the_format(self, window, book):
         tab = window.convert_tab
-        tab._autofill_output(str(book))
+        select_file(tab, book)
         assert tab.output_edit.text().endswith(".m4b")
 
         formats = [tab.format_combo.itemData(i) for i in range(tab.format_combo.count())]
@@ -120,8 +238,7 @@ class TestGather:
         """The GUI and the backend signature drift apart silently otherwise."""
         tab = window.convert_tab
         select_engine(tab, "edge")
-        tab.input_edit.setText(str(book))
-        tab._autofill_output(str(book))
+        select_file(tab, book)
 
         params = tab.gather()
         accepted = set(inspect.signature(core.file_to_audio).parameters)
@@ -132,40 +249,37 @@ class TestGather:
     def test_it_builds_a_worker(self, window, book):
         tab = window.convert_tab
         select_engine(tab, "edge")
-        tab.input_edit.setText(str(book))
-        tab._autofill_output(str(book))
+        select_file(tab, book)
         assert ConversionWorker(**tab.gather())._level == logging.INFO
 
     def test_the_verbosity_setting_reaches_the_worker(self, window, book):
         tab = window.convert_tab
         select_engine(tab, "edge")
-        tab.input_edit.setText(str(book))
-        tab._autofill_output(str(book))
+        select_file(tab, book)
         tab.settings.verbosity.setCurrentIndex(2)  # Debug
         assert ConversionWorker(**tab.gather())._level == logging.DEBUG
 
     def test_metadata_flows_from_the_settings_dialog(self, window, book):
         tab = window.convert_tab
         select_engine(tab, "edge")
-        tab.input_edit.setText(str(book))
-        tab._autofill_output(str(book))
+        select_file(tab, book)
         tab.settings.title_edit.setText("My Title")
         tab.settings.author_edit.setText("An Author")
         params = tab.gather()
         assert params["meta"] == {"title": "My Title", "author": "An Author"}
 
-    def test_a_missing_input_is_refused(self, window):
-        with pytest.raises(ValueError, match="input file"):
+    def test_no_source_chosen_is_refused(self, window):
+        with pytest.raises(ValueError, match="choose a source"):
             window.convert_tab.gather()
 
-    def test_a_nonexistent_input_is_refused(self, window):
-        window.convert_tab.input_edit.setText("/no/such/book.epub")
-        with pytest.raises(ValueError, match="does not exist"):
+    def test_a_source_that_vanished_is_refused(self, window):
+        select_file(window.convert_tab, "/no/such/book.epub")
+        with pytest.raises(ValueError, match="no longer on disk"):
             window.convert_tab.gather()
 
     def test_a_missing_output_is_refused(self, window, book):
         tab = window.convert_tab
-        tab.input_edit.setText(str(book))
+        select_file(tab, book)
         tab.output_edit.clear()
         with pytest.raises(ValueError, match="where to save"):
             tab.gather()
@@ -177,16 +291,14 @@ class TestGather:
         if unavailable is None:
             pytest.skip("every engine is configured on this machine")
         select_engine(tab, unavailable.name)
-        tab.input_edit.setText(str(book))
-        tab._autofill_output(str(book))
+        select_file(tab, book)
         with pytest.raises(ValueError, match="needs setup"):
             tab.gather()
 
     def test_a_missing_cover_image_is_refused(self, window, book):
         tab = window.convert_tab
         select_engine(tab, "edge")
-        tab.input_edit.setText(str(book))
-        tab._autofill_output(str(book))
+        select_file(tab, book)
         tab.settings.cover_edit.setText("/no/such/cover.jpg")
         with pytest.raises(ValueError, match="Cover image does not exist"):
             tab.gather()
@@ -253,8 +365,7 @@ class TestExtractionControls:
     def test_they_reach_the_backend_through_gather(self, window, book):
         tab = window.convert_tab
         select_engine(tab, "edge")
-        tab.input_edit.setText(str(book))
-        tab._autofill_output(str(book))
+        select_file(tab, book)
         tab.settings.force_ocr.setChecked(True)
         tab.settings.resume.setChecked(False)
 
@@ -268,8 +379,7 @@ class TestExtractionControls:
     def test_the_pdf_page_range_still_flows_through(self, window, book):
         tab = window.convert_tab
         select_engine(tab, "edge")
-        tab.input_edit.setText(str(book))
-        tab._autofill_output(str(book))
+        select_file(tab, book)
         tab.settings.first_page.setValue(30)
         tab.settings.last_page.setValue(120)
         configs = tab.gather()["parser_configs"]
@@ -305,11 +415,63 @@ class TestNormalizerControl:
         if broken is None:
             pytest.skip("every normalizer is configured on this machine")
         select_engine(tab, "edge")
-        tab.input_edit.setText(str(book))
-        tab._autofill_output(str(book))
+        select_file(tab, book)
         s.normalizer.setCurrentIndex(s.normalizer.findData(broken))
         with pytest.raises(ValueError, match="normalization is not available"):
             tab.gather()
+
+
+class TestResearchDialog:
+    def test_it_starts_with_no_result(self, app):
+        dialog = ResearchDialog()
+        assert dialog.result_research is None
+
+    def test_a_topic_is_required(self, app):
+        dialog = ResearchDialog()
+        dialog.name_edit.setText("something")
+        dialog._start()
+        assert dialog._worker is None
+        assert "research" in dialog.status.text().lower()
+
+    def test_a_name_is_required(self, app):
+        """Deep Research has no filename to fall back on."""
+        dialog = ResearchDialog()
+        dialog.topic_edit.setPlainText("the history of the marine chronometer")
+        dialog.name_edit.clear()
+        dialog._name_is_auto = False  # simulate the user clearing it deliberately
+        dialog._start()
+        assert dialog._worker is None
+        assert "name" in dialog.status.text().lower()
+
+    def test_the_name_is_suggested_from_the_topic(self, app):
+        dialog = ResearchDialog()
+        dialog.topic_edit.setPlainText("the history of the marine chronometer")
+        assert dialog.name_edit.text() == "history_marine_chronometer"
+
+    def test_a_typed_name_is_not_overwritten(self, app):
+        dialog = ResearchDialog()
+        dialog.name_edit.setText("mine")
+        dialog.name_edit.textEdited.emit("mine")  # as typing would
+        dialog.topic_edit.setPlainText("something else entirely")
+        assert dialog.name_edit.text() == "mine"
+
+    def test_it_offers_the_agent_depths(self, app):
+        dialog = ResearchDialog()
+        codes = [dialog.agent_combo.itemData(i) for i in range(dialog.agent_combo.count())]
+        assert codes == ["standard", "max", "pro"]
+
+    def test_it_refuses_to_start_without_credentials(self, app, monkeypatch):
+        """The key check happens before a 15-minute job, not during it."""
+        import echo.research as research
+
+        monkeypatch.setattr(research.ec, "GEMINI_API_KEY", "")
+        monkeypatch.setattr("PySide6.QtWidgets.QMessageBox.warning", lambda *a, **k: None)
+        dialog = ResearchDialog()
+        dialog.topic_edit.setPlainText("a topic")
+        dialog.name_edit.setText("a_name")
+        dialog._start()
+        assert dialog._worker is None
+        assert "GEMINI_API_KEY" in dialog.status.text()
 
 
 class TestGutenbergDialog:

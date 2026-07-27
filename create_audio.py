@@ -11,6 +11,7 @@ from echo.audio.assemble import FORMATS
 from echo.audio.engines import EngineUnavailable, available_engines, engine_names
 from echo.extractors import SUPPORTED_SUFFIXES
 from echo.normalize import NORMALIZER_NAMES, NormalizerUnavailable
+from echo.research import AGENTS, ResearchError, research
 
 log = logging.getLogger(__name__)
 
@@ -79,6 +80,27 @@ def build_parser() -> argparse.ArgumentParser:
         choices=("epub", "text"),
         default="epub",
         help="Which Gutenberg edition to download. EPUB keeps chapter structure. (Default: epub)",
+    )
+
+    research_group = parser.add_argument_group("Gemini Deep Research")
+    research_group.add_argument(
+        "-r",
+        "--research",
+        dest="research",
+        metavar="TOPIC",
+        default=None,
+        help="Research this topic with Gemini Deep Research and narrate the report. Takes 2-15 minutes.",
+    )
+    research_group.add_argument(
+        "--agent",
+        choices=tuple(AGENTS),
+        default=ec.RESEARCH_AGENT,
+        help=f"Deep Research agent depth. (Default: {ec.RESEARCH_AGENT})",
+    )
+    parser.add_argument(
+        "--name",
+        default=None,
+        help="Name for the run, used for the audio filename and title. Required with --research.",
     )
     parser.add_argument(
         "-e",
@@ -173,6 +195,24 @@ def main(argv: list[str] = None) -> int:
         print("\nConvert one with:  --gutenberg-id <id>")
         return 0
 
+    chosen_sources = [bool(args.file_path), bool(args.gutenberg or args.gutenberg_id), bool(args.research)]
+    if sum(chosen_sources) > 1:
+        build_parser().error("Choose one source: a file path, a Gutenberg search, or --research.")
+
+    if args.research:
+        if not args.name:
+            build_parser().error("--research needs --name; it names the audio file and the title.")
+        try:
+            found = research(args.research, args.name, agent=args.agent, keep=args.save,
+                             on_progress=log.info)
+        except (ResearchError, ValueError) as ex:
+            log.error(str(ex))
+            return 1
+        args.file_path = str(found.path)
+        args.mp3_meta = {**found.as_meta(), **args.mp3_meta}
+        if found.notes_path:
+            log.info(f"Kept the cited report at {found.notes_path}")
+
     if args.gutenberg or args.gutenberg_id:
         if args.file_path:
             build_parser().error("Give either a file path or a Gutenberg search, not both.")
@@ -197,9 +237,13 @@ def main(argv: list[str] = None) -> int:
 
     if not args.file_path:
         build_parser().error(
-            "Give a file path, or search Project Gutenberg with --gutenberg TITLE "
-            "(or use --list-voices / --list-engines)"
+            "Give a file path, search Project Gutenberg with --gutenberg TITLE, or "
+            "research a topic with --research TOPIC (or use --list-voices / --list-engines)"
         )
+
+    if args.name and not args.output:
+        # The name drives the audio filename, for any source.
+        args.output = f"{args.name}.{args.fmt}"
 
     parser_configs = {
         "first_page": args.first_page,

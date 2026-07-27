@@ -185,6 +185,57 @@ class GutenbergDownloadWorker(QThread):
             logger.setLevel(prior)
 
 
+class ResearchWorker(QThread):
+    """Runs a Gemini Deep Research job off the main thread.
+
+    A run takes 2–15 minutes, so this reports progress as it goes rather than
+    leaving the dialog on a spinner, and supports cancelling.
+    """
+
+    finished_ok = Signal(object)  # ResearchResult
+    message = Signal(str)
+    failed = Signal(str)
+
+    def __init__(self, topic: str, name: str, agent: str, keep: bool, parent=None):
+        super().__init__(parent)
+        self._topic = topic
+        self._name = name
+        self._agent = agent
+        self._keep = keep
+        self._researcher = None
+        self._cancelled = False
+
+    def run(self) -> None:
+        try:
+            import echo.constants as ec
+            from echo.research import DeepResearcher
+
+            self._researcher = DeepResearcher()
+            result = self._researcher.run(
+                self._topic,
+                self._name,
+                agent=self._agent,
+                keep_dir=ec.RESEARCH_DIR if self._keep else None,
+                on_progress=self.message.emit,
+            )
+            if self._cancelled:
+                return
+            self.finished_ok.emit(result)
+        except Exception as exc:
+            if not self._cancelled:
+                self.failed.emit(str(exc) or exc.__class__.__name__)
+
+    def cancel(self) -> None:
+        """Stop reporting, and shorten the deadline so the poll loop gives up.
+
+        The interaction itself is cancelled server-side by ``DeepResearcher`` when its
+        timeout trips, so a cancelled job is not left running and billed.
+        """
+        self._cancelled = True
+        if self._researcher is not None:
+            self._researcher.timeout_seconds = 0.0
+
+
 class PreviewWorker(_BaseWorker):
     """Synthesizes a short spoken sample for a voice and opens it in the OS player."""
 

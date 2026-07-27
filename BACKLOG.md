@@ -164,7 +164,13 @@ Recorded so they don't get re-litigated. Change them deliberately, not by drift.
 - **M4B is the default output**, with chapters; MP3 stays available.
 - **LLM normalization is optional and off by default.** Used mostly on
   well-edited books, so the rules pass is usually enough.
-- **Deep Research is gone for good.** Google is kept for TTS only.
+- **Deep Research is back** (reversing an earlier "gone for good" entry). What was
+  deleted in `d15511f` deserved to go — it was a single `generate_content` call with
+  "conduct a comprehensive deep research" in the prompt. The replacement calls the
+  real thing: `client.interactions.create(agent="deep-research-…", background=True)`,
+  polled to completion. Deep Research is an **agent**, not a model and not a
+  `generate_content` tool — which is why a first pass at this concluded, wrongly,
+  that no such API existed.
 - **Google Cloud TTS needs ADC, not an API key** — its REST API rejects API keys.
   The Gemini API path is the key-based one.
 - **Gutenberg ranking does not privilege exact title matches** — canonical editions

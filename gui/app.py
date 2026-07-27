@@ -17,7 +17,7 @@ from importlib.util import find_spec
 from pathlib import Path
 
 from PySide6.QtCore import QSize, Qt
-from PySide6.QtGui import QFont, QFontMetrics
+from PySide6.QtGui import QAction, QFont, QFontMetrics
 from PySide6.QtWidgets import (
     QApplication,
     QCheckBox,
@@ -33,6 +33,7 @@ from PySide6.QtWidgets import (
     QListWidget,
     QListWidgetItem,
     QMainWindow,
+    QMenu,
     QMessageBox,
     QPlainTextEdit,
     QProgressBar,
@@ -49,6 +50,7 @@ from PySide6.QtWidgets import (
 import echo.constants as ec
 from echo.audio.assemble import FORMATS
 from echo.normalize import available_normalizers
+from gui import sources as gs
 from gui import voices as gv
 from gui.style import apply_theme
 from gui.workers import (
@@ -56,6 +58,7 @@ from gui.workers import (
     GutenbergDownloadWorker,
     GutenbergSearchWorker,
     PreviewWorker,
+    ResearchWorker,
     open_in_default_app,
 )
 
@@ -468,12 +471,20 @@ class GutenbergDialog(QDialog):
         edition_row.addWidget(self.prefer_combo, 1)
         edition_row.addWidget(self.language_combo)
 
+        # The audio filename comes from this, not from the cache filename
+        # (which looks like pg2680_meditations.epub).
+        self.name_edit = QLineEdit()
+        self.name_edit.setPlaceholderText("Filled in from the book you pick — edit if you like")
+        self.name_edit.textEdited.connect(lambda: setattr(self, "_name_is_auto", False))
+        self._name_is_auto = True
+
         form = QFormLayout()
         form.setLabelAlignment(Qt.AlignLeft | Qt.AlignVCenter)
         form.setVerticalSpacing(10)
         form.addRow("Title:", self._row(self.title_edit, self.search_btn))
         form.addRow("Author:", self.author_edit)
         form.addRow("Edition:", edition_row)
+        form.addRow("Name:", self.name_edit)
 
         self.results_list = QListWidget()
         self.results_list.setAlternatingRowColors(True)
@@ -526,7 +537,11 @@ class GutenbergDialog(QDialog):
             self.status.setText(message)
 
     def _sync_buttons(self) -> None:
-        self.download_btn.setEnabled(self.results_list.currentRow() >= 0)
+        row = self.results_list.currentRow()
+        self.download_btn.setEnabled(row >= 0)
+        # Suggest a name from the highlighted book until the user types their own.
+        if self._name_is_auto and 0 <= row < len(self._books):
+            self.name_edit.setText(gs.slugify(self._books[row].title))
 
     # -- search ------------------------------------------------------------- #
     def _search(self) -> None:
@@ -592,6 +607,161 @@ class GutenbergDialog(QDialog):
         QMessageBox.warning(self, "Project Gutenberg", message)
 
 
+class ResearchDialog(QDialog):
+    """Ask Gemini Deep Research a question and narrate the report.
+
+    A run takes 2–15 minutes, which is far too long for a spinner, so this shows
+    live progress (search count and elapsed time) and can be cancelled.
+    """
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Research a topic with Gemini")
+        self.setModal(True)
+        self.setMinimumSize(640, 460)
+
+        self.result_research = None  # set to a ResearchResult on success
+        self._worker = None
+
+        self.topic_edit = QPlainTextEdit()
+        self.topic_edit.setPlaceholderText(
+            "What should it research? e.g. the history of the marine chronometer and "
+            "its effect on navigation"
+        )
+        self.topic_edit.setMinimumHeight(90)
+        self.topic_edit.textChanged.connect(self._suggest_name)
+
+        self.name_edit = QLineEdit()
+        self.name_edit.setPlaceholderText("Used for the audio filename and title")
+        self.name_edit.textEdited.connect(self._name_touched)
+        self._name_is_auto = True
+
+        self.agent_combo = QComboBox()
+        self.agent_combo.addItem("Standard — a few minutes", "standard")
+        self.agent_combo.addItem("Max — many more searches, slower", "max")
+        self.agent_combo.addItem("Pro", "pro")
+        idx = self.agent_combo.findData(ec.RESEARCH_AGENT)
+        if idx >= 0:
+            self.agent_combo.setCurrentIndex(idx)
+
+        self.keep_check = QCheckBox("Keep the report and its citations in the project")
+        self.keep_check.setChecked(True)
+        self.keep_check.setToolTip(
+            "Writes <name>.md and <name>.notes.md into resources/research/ "
+            "(gitignored). Otherwise a temporary directory is used."
+        )
+
+        form = QFormLayout()
+        form.setLabelAlignment(Qt.AlignLeft | Qt.AlignVCenter)
+        form.setVerticalSpacing(10)
+        form.addRow("Topic:", self.topic_edit)
+        form.addRow("Name:", self.name_edit)
+        form.addRow("Depth:", self.agent_combo)
+        form.addRow("", self.keep_check)
+
+        self.log_view = QPlainTextEdit()
+        self.log_view.setReadOnly(True)
+        self.log_view.setMaximumBlockCount(500)
+        self.log_view.setPlaceholderText("Progress will appear here once research starts…")
+        mono = QFont()
+        mono.setStyleHint(QFont.Monospace)
+        mono.setFamily("Menlo")
+        self.log_view.setFont(mono)
+        self.log_view.setMinimumHeight(QFontMetrics(mono).lineSpacing() * 4 + 14)
+
+        self.status = QLabel("Deep Research plans, searches the web and writes a cited report.")
+        self.status.setWordWrap(True)
+
+        self.start_btn = QPushButton("Start research")
+        self.start_btn.setObjectName("primary")
+        self.start_btn.setDefault(True)
+        self.start_btn.clicked.connect(self._start)
+        self.cancel_btn = QPushButton("Cancel")
+        self.cancel_btn.clicked.connect(self._cancel)
+
+        buttons = QHBoxLayout()
+        buttons.addStretch(1)
+        buttons.addWidget(self.cancel_btn)
+        buttons.addWidget(self.start_btn)
+
+        heading = QLabel("Progress")
+        heading.setObjectName("sectionHeading")
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(18, 18, 18, 18)
+        layout.setSpacing(10)
+        layout.addLayout(form)
+        layout.addWidget(heading)
+        layout.addWidget(self.log_view, 1)
+        layout.addWidget(self.status)
+        layout.addLayout(buttons)
+
+    # -- name suggestion ---------------------------------------------------- #
+    def _name_touched(self) -> None:
+        self._name_is_auto = not self.name_edit.text().strip()
+
+    def _suggest_name(self) -> None:
+        """Pre-fill the name from the topic, until the user types their own."""
+        if self._name_is_auto:
+            self.name_edit.setText(gs.slugify(self.topic_edit.toPlainText()))
+
+    # -- running ------------------------------------------------------------ #
+    def _running(self, running: bool) -> None:
+        self.start_btn.setEnabled(not running)
+        self.topic_edit.setReadOnly(running)
+        self.name_edit.setReadOnly(running)
+        self.agent_combo.setEnabled(not running)
+        self.keep_check.setEnabled(not running)
+        self.cancel_btn.setText("Stop" if running else "Cancel")
+
+    def _start(self) -> None:
+        topic = self.topic_edit.toPlainText().strip()
+        name = self.name_edit.text().strip()
+        if not topic:
+            self.status.setText("Please describe what to research.")
+            return
+        if not name:
+            self.status.setText("Please give this a name — it names the audio file.")
+            return
+
+        from echo.research import DeepResearcher
+
+        ok, reason = DeepResearcher().is_available()
+        if not ok:
+            self.status.setText(reason)
+            QMessageBox.warning(self, "Deep Research", reason)
+            return
+
+        self.log_view.clear()
+        self._running(True)
+        self.status.setText("Researching… this takes 2–15 minutes. You can stop it.")
+
+        self._worker = ResearchWorker(topic, name, self.agent_combo.currentData(),
+                                      self.keep_check.isChecked())
+        self._worker.message.connect(self.log_view.appendPlainText)
+        self._worker.finished_ok.connect(self._done)
+        self._worker.failed.connect(self._failed)
+        self._worker.start()
+
+    def _cancel(self) -> None:
+        if self._worker is not None and self._worker.isRunning():
+            self.log_view.appendPlainText("Stopping…")
+            self._worker.cancel()
+            self._running(False)
+            self.status.setText("Stopped.")
+            return
+        self.reject()
+
+    def _done(self, result) -> None:
+        self.result_research = result
+        self.accept()
+
+    def _failed(self, message: str) -> None:
+        self._running(False)
+        self.status.setText(message)
+        QMessageBox.warning(self, "Deep Research", message)
+
+
 class FitScrollArea(QScrollArea):
     """A scroll area whose size hint tracks its content.
 
@@ -617,17 +787,42 @@ class ConvertTab(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
 
+        # The chosen source. The input field describes it; this holds the truth.
+        self._source: gs.SourceSelection | None = None
+
         self.input_edit = QLineEdit()
-        input_browse = QPushButton("Browse…")
-        input_browse.clicked.connect(self._pick_input)
-        self.gutenberg_btn = QPushButton("Gutenberg…")
-        self.gutenberg_btn.setToolTip("Search Project Gutenberg for a free public-domain book")
-        self.gutenberg_btn.clicked.connect(self._pick_gutenberg)
+        self.input_edit.setReadOnly(True)
+        self.input_edit.setPlaceholderText("Choose a file, a Gutenberg book, or a research topic →")
+
+        # One split button rather than three: clicking the body browses (the common
+        # case), the arrow offers the other two sources.
+        self.source_btn = QToolButton()
+        self.source_btn.setPopupMode(QToolButton.ToolButtonPopupMode.MenuButtonPopup)
+        self.source_btn.setToolButtonStyle(Qt.ToolButtonTextOnly)
+        self.source_btn.setCursor(Qt.PointingHandCursor)
+
+        self.browse_action = QAction("Browse…", self)
+        self.browse_action.setToolTip("Choose a PDF, EPUB, Markdown or text file")
+        self.browse_action.triggered.connect(self._pick_input)
+        self.gutenberg_action = QAction("Project Gutenberg…", self)
+        self.gutenberg_action.setToolTip("Search Project Gutenberg for a free public-domain book")
+        self.gutenberg_action.triggered.connect(self._pick_gutenberg)
+        self.research_action = QAction("Deep Research…", self)
+        self.research_action.setToolTip("Have Gemini research a topic, then narrate the report")
+        self.research_action.triggered.connect(self._pick_research)
+
+        source_menu = QMenu(self.source_btn)
+        source_menu.addAction(self.browse_action)
+        source_menu.addAction(self.gutenberg_action)
+        source_menu.addAction(self.research_action)
+        self.source_btn.setMenu(source_menu)
+        # Browse is the default: pressing the button body does it directly.
+        self.source_btn.setDefaultAction(self.browse_action)
+
         input_row = QHBoxLayout()
         input_row.setContentsMargins(0, 0, 0, 0)
         input_row.addWidget(self.input_edit, 1)
-        input_row.addWidget(input_browse)
-        input_row.addWidget(self.gutenberg_btn)
+        input_row.addWidget(self.source_btn)
 
         # Engine choices come from the backend registry; unavailable ones stay
         # visible but disabled, with the reason in their tooltip.
@@ -671,7 +866,8 @@ class ConvertTab(QWidget):
         form.setVerticalSpacing(12)
         form.setColumnStretch(1, 1)
         r = 0
-        form.addWidget(QLabel("Input file:"), r, 0, Qt.AlignLeft | Qt.AlignVCenter)
+        # "Source", not "Input file" — it may be a research topic or a catalogue entry.
+        form.addWidget(QLabel("Source:"), r, 0, Qt.AlignLeft | Qt.AlignVCenter)
         form.addLayout(input_row, r, 1)
         r += 1
         form.addWidget(QLabel("Engine:"), r, 0, Qt.AlignLeft | Qt.AlignVCenter)
@@ -720,12 +916,33 @@ class ConvertTab(QWidget):
             row.addWidget(button)
         return row
 
+    def _set_source(self, source: gs.SourceSelection) -> None:
+        """Adopt a chosen source: describe it, and rename the output after it."""
+        self._source = source
+        self.input_edit.setText(source.display)
+        # setText leaves the cursor at the end, which scrolls a long description so
+        # only its tail is visible. The beginning is the useful part.
+        self.input_edit.setCursorPosition(0)
+        self.input_edit.setToolTip(f"{source.display}\n\nReads: {source.path}")
+        self.output_edit.clear()  # any previous output name no longer fits
+        self._autofill_output()
+
+        # Fill metadata the source knows about, without overwriting anything typed.
+        if title := source.meta.get("title"):
+            if not self.settings.title_edit.text().strip():
+                self.settings.title_edit.setText(title)
+        if author := source.meta.get("author"):
+            if not self.settings.author_edit.text().strip():
+                self.settings.author_edit.setText(author)
+        if cover := source.meta.get("image_path"):
+            if not self.settings.cover_edit.text().strip():
+                self.settings.cover_edit.setText(str(cover))
+
     def _pick_input(self) -> None:
         path, _ = QFileDialog.getOpenFileName(self, "Select input file", "", SUPPORTED_INPUTS)
         if not path:
             return
-        self.input_edit.setText(path)
-        self._autofill_output(path)
+        self._set_source(gs.SourceSelection.from_file(path))
 
     def current_engine(self) -> str:
         return self.engine_combo.currentData() or ec.DEFAULT_ENGINE
@@ -751,34 +968,43 @@ class ConvertTab(QWidget):
             self.output_edit.setText(str(Path(current).with_suffix(f".{self.current_format()}")))
 
     def _pick_gutenberg(self) -> None:
-        """Search Project Gutenberg, then use the download as the input file.
+        """Search Project Gutenberg, then use the download as the source.
 
-        The catalogue also gives us title, author and cover art, so the metadata
-        fields are filled in — without overwriting anything already typed there.
+        The catalogue also gives us title, author and cover art, so ``_set_source``
+        fills the metadata fields in — without overwriting anything already typed.
         """
         dialog = GutenbergDialog(self)
-        dialog.title_edit.setText(self.settings.title_edit.text().strip())
         if dialog.exec() != QDialog.Accepted or dialog.result_book is None:
             return
+        self._set_source(
+            gs.SourceSelection.from_gutenberg(
+                dialog.result_book,
+                name=dialog.name_edit.text(),
+                language=dialog.language_combo.currentText(),
+            )
+        )
 
-        downloaded = dialog.result_book
-        self.input_edit.setText(str(downloaded.path))
-        self.output_edit.clear()  # the previous output name no longer fits
-        self._autofill_output(str(downloaded.path))
+    def _pick_research(self) -> None:
+        """Run Gemini Deep Research, then narrate the report it produced."""
+        dialog = ResearchDialog(self)
+        if dialog.exec() != QDialog.Accepted or dialog.result_research is None:
+            return
+        self._set_source(gs.SourceSelection.from_research(dialog.result_research))
 
-        if not self.settings.title_edit.text().strip():
-            self.settings.title_edit.setText(downloaded.book.title)
-        if not self.settings.author_edit.text().strip():
-            self.settings.author_edit.setText(downloaded.book.author)
-        if downloaded.cover_path and not self.settings.cover_edit.text().strip():
-            self.settings.cover_edit.setText(str(downloaded.cover_path))
+    def _autofill_output(self) -> None:
+        """Name the output after the source's name, not its filename.
 
-    def _autofill_output(self, input_path: str) -> None:
-        if self.output_edit.text().strip():
+        A Gutenberg cache file is called ``pg2680_meditations.epub`` and a research
+        report lives in a temp directory, so the source's own name is the only sane
+        basis for the audio filename.
+        """
+        if self._source is None or self.output_edit.text().strip():
             return  # respect a path the user already chose
-        src = Path(input_path)
-        out_dir = Path(ec.OUTPUT_FOLDER) if ec.OUTPUT_FOLDER else src.parent
-        self.output_edit.setText(str(out_dir / f"{src.stem}.{self.current_format()}"))
+        out_dir = Path(ec.OUTPUT_FOLDER) if ec.OUTPUT_FOLDER else self._source.path.parent
+        if self._source.kind != gs.FILE and not ec.OUTPUT_FOLDER:
+            # Don't drop an audiobook into a temp or cache directory.
+            out_dir = Path.home() / "Audiobooks"
+        self.output_edit.setText(str(out_dir / f"{self._source.name}.{self.current_format()}"))
 
     def _pick_output(self) -> None:
         start = self.output_edit.text() or (ec.OUTPUT_FOLDER or "")
@@ -795,11 +1021,14 @@ class ConvertTab(QWidget):
         Raises ``ValueError`` with a user-facing message on invalid input.
         Advanced options are read from the (modal) settings dialog.
         """
-        file_path = self.input_edit.text().strip()
-        if not file_path:
-            raise ValueError("Please choose an input file.")
-        if not Path(file_path).exists():
-            raise ValueError(f"Input file does not exist:\n{file_path}")
+        if self._source is None:
+            raise ValueError(
+                "Please choose a source first — a file, a Project Gutenberg book, or "
+                "a Deep Research topic."
+            )
+        file_path = str(self._source.path)
+        if not self._source.path.exists():
+            raise ValueError(f"The chosen source is no longer on disk:\n{file_path}")
 
         output_path = self.output_edit.text().strip()
         if not output_path:
@@ -811,7 +1040,8 @@ class ConvertTab(QWidget):
             raise ValueError(f"The {choice.label} engine needs setup first:\n\n{choice.reason}")
 
         s = self.settings
-        meta: dict = {}
+        # The source's own metadata sits underneath, so anything typed here wins.
+        meta: dict = dict(self._source.meta)
         if s.title_edit.text().strip():
             meta["title"] = s.title_edit.text().strip()
         if s.author_edit.text().strip():
@@ -821,6 +1051,8 @@ class ConvertTab(QWidget):
             if not Path(cover).exists():
                 raise ValueError(f"Cover image does not exist:\n{cover}")
             meta["image_path"] = cover
+        elif meta.get("image_path") and not Path(meta["image_path"]).exists():
+            meta.pop("image_path")  # a stale cached cover shouldn't fail the run
 
         normalizer_name = s.normalizer.currentData()
         if reason := s._normalizer_reasons.get(normalizer_name):

@@ -78,6 +78,13 @@ MIN_CHAPTER_CHARS="400"         # fold shorter sections into a neighbour; 0 keep
 # Project Gutenberg
 GUTENBERG_DIR="~/.cache/echo/gutenberg"   # where downloaded books are cached
 
+# Gemini Deep Research
+RESEARCH_AGENT="standard"        # standard | max | pro
+RESEARCH_AGENT_ID=""             # override the agent id outright when previews are renamed
+RESEARCH_DIR="resources/research"          # kept reports land here (gitignored)
+RESEARCH_POLL_SECONDS="15"
+RESEARCH_TIMEOUT_SECONDS="1800"  # give up (and cancel) after 30 minutes
+
 # Google engines
 GEMINI_API_KEY="..."            # for --engine gemini and --normalize gemini
                                 # (GOOGLE_API_KEY works too)
@@ -179,6 +186,50 @@ chapters — the introduction, the twelve books, and the appendices.
 In the desktop app, the **Gutenberg…** button beside the input file picker opens
 the same search, and fills in the metadata fields for you.
 
+# Researching a topic
+
+Instead of a book you already have, you can have **Gemini Deep Research** investigate
+a topic and narrate its report.
+
+```bash
+python create_audio.py \
+  --research "the history of the marine chronometer and its effect on navigation" \
+  --name chronometer --save
+```
+
+`--name` is required — Deep Research has no filename to derive the audio name from —
+and it becomes the audio filename and the metadata title.
+
+Deep Research is a **real agent, not a prompt**. It plans, runs many web searches,
+reads pages and writes a cited report, so:
+
+- **A run takes 2–15 minutes.** echo reports progress as it goes ("Researching… 24
+  searches so far") and gives up after 30 minutes, cancelling the job so it isn't
+  left billing.
+- **It needs a paid-tier Gemini API key.** A free-tier key returns a
+  `budget_exceeded` status, which echo reports in those words rather than as a
+  generic failure.
+- `--agent standard` (default), `max` (many more searches, slower) or `pro`.
+
+With `--save`, two files are kept in `resources/research/` (gitignored):
+
+| File | Contents |
+| --- | --- |
+| `<name>.md` | the narration source — citations and link furniture stripped |
+| `<name>.notes.md` | the full cited report, the topic, the agent, the search count |
+
+The citations are deliberately *not* narrated; they live in the notes file. Without
+`--save`, only the narration source is written, to a temporary directory.
+
+In the desktop app this is the **Deep Research…** entry on the source button, with
+live progress and a stop button.
+
+> **A note on the API, since it is easy to get wrong.** Deep Research is reached
+> through `client.interactions.create(agent=…, background=True)` and polled — not
+> through `generate_content`, and not as a tool you attach to a model. The variants
+> are *agents* (`agent=`), their ids are date-stamped previews, and interaction
+> statuses are lowercase. See `echo/research.py`.
+
 # Usage
 
 ## Command line
@@ -225,6 +276,9 @@ python create_audio.py --list-voices -e gemini
 | `--language` | catalogue language to search (default: `en`) |
 | `--list-matches` | show Gutenberg matches with ids, then exit |
 | `--prefer` | `epub` (default, keeps chapters) or `text` |
+| `-r, --research` | research this topic with Gemini Deep Research and narrate the report |
+| `--name` | names the audio file and the title; **required** with `--research` |
+| `--agent` | Deep Research depth: `standard` (default), `max`, `pro` |
 
 Convert a whole folder with `python bulk_generate.py /path/to/books`.
 

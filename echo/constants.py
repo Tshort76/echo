@@ -78,6 +78,18 @@ CHAPTER_HEADING_LEVEL = _get_env_int("CHAPTER_HEADING_LEVEL", 2)
 #: two-second chapters before the book starts. Set to 0 to keep every heading.
 MIN_CHAPTER_CHARS = _get_env_int("MIN_CHAPTER_CHARS", 400)
 
+##### Gemini Deep Research (a source of text, not an engine)
+#: standard | max | pro — see echo.research.AGENTS.
+RESEARCH_AGENT = os.environ.get("RESEARCH_AGENT", "standard")
+#: Override the agent id outright, for when the dated previews are renamed.
+RESEARCH_AGENT_ID = os.environ.get("RESEARCH_AGENT_ID", "")
+#: Where kept research artefacts land. Gitignored; only written when the caller
+#: asks to save intermediate files.
+RESEARCH_DIR = str(resource_path(os.environ.get("RESEARCH_DIR", "resources/research")))
+RESEARCH_POLL_SECONDS = _get_env_float("RESEARCH_POLL_SECONDS", 15.0)
+#: A Deep Research run takes 2–15 minutes; this is the give-up point.
+RESEARCH_TIMEOUT_SECONDS = _get_env_float("RESEARCH_TIMEOUT_SECONDS", 1800.0)
+
 ##### Google engines
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")
 GEMINI_TTS_MODEL = os.environ.get("GEMINI_TTS_MODEL", "gemini-2.5-flash-preview-tts")

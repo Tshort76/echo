@@ -10,6 +10,8 @@ __pypackages__/
 resources/*
 !resources/demo_data/
 !resources/voices.csv
+# Deep Research artefacts (also covered by resources/*, listed so the intent is clear)
+resources/research/
 *.ipynb
 
 # PyInstaller build artifacts

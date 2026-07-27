@@ -73,6 +73,7 @@ echo/
   document.py      # The data model: Block/BlockKind, Document, Utterance/Chapter/Script, Timing, Segment
   normalize.py     # Rules normalization, page-artifact detection, Script assembly, optional LLM normalizers
   gutenberg.py     # Project Gutenberg: search via Gutendex, ranked results, cached downloads, cover art
+  research.py      # Gemini Deep Research via the interactions agent API (background + polling)
   paths.py         # resource_path(): resolves bundled data in a checkout AND a frozen build
   constants.py     # Env-driven config (separate int/float/bool readers)
   extractors/
@@ -98,7 +99,8 @@ create_audio.py    # CLI
 bulk_generate.py   # Folder-at-a-time CLI
 echo_gui.py        # Launcher for the optional desktop GUI
 gui/
-  app.py           # PySide6 main window: engine/voice/speed/format form + settings modal
+  app.py           # PySide6 main window: source split-button, engine/voice/speed/format, settings modal
+  sources.py       # SourceSelection: what was chosen, how to describe it, and its name
   voices.py        # Adapter over echo.audio.engines for the dropdowns
   workers.py       # QThread workers; capture backend logs -> progress bar/log panel
   style.py         # QSS theme
@@ -168,6 +170,48 @@ The GUI runs search and download on `GutenbergSearchWorker` /
 `GutenbergDownloadWorker` threads; both are plain `QThread`s rather than
 `_BaseWorker`s because their results are records and objects, not a path.
 
+### Gemini Deep Research (`echo/research.py`)
+
+A third source of text, alongside a local file and Project Gutenberg.
+
+**Deep Research is an agent, not a model, and not a `generate_content` tool.** This is
+the trap: a first attempt at this concluded no such API existed, because it looked in
+`types.Tool` and the type names. It actually lives on the client:
+
+```python
+client.interactions.create(body={"agent": "deep-research-preview-04-2026",
+                                 "input": topic, "background": True})
+client.interactions.get(interaction_id)      # poll until terminal
+```
+
+Four things that fail at runtime if you get them wrong: it is `agent=`, not `model=`
+(the SDK has separate `CreateAgentInteraction` and `CreateModelInteraction` shapes);
+agent ids are date-stamped previews; statuses are **lowercase**; and the result is
+`output_text`, not an `outputs` list.
+
+Status handling is most of the module's value:
+
+| Status | Handling |
+| --- | --- |
+| `queued`, `in_progress` | poll; progress from counting search steps |
+| `completed` | take `output_text` |
+| `budget_exceeded` | its own message — the agents need a **paid-tier** key |
+| `requires_action` | the collaborative-planning pause; refused clearly rather than polled forever |
+| `failed`, `incomplete`, `cancelled` | `ResearchError` naming the status and any detail |
+
+A run takes 2–15 minutes, so `run()` takes an `on_progress` callback (the CLI logs it,
+the GUI dialog shows it) and enforces a timeout that **cancels** the interaction rather
+than abandoning a billed job.
+
+The report arrives as cited markdown, which is not narratable. `to_narration_source()`
+trims the trailing references section and bracketed citation markers, then the existing
+markdown extractor handles the rest — rather than the deleted version's mistake of
+asking for markdown and then stripping it. Citations survive in `<name>.notes.md`.
+
+Note the `None`-not-`or` defaults in `__post_init__`: `poll_seconds or default` made
+`poll_seconds=0` silently become 15, which is both an un-tunable knob and a 90-second
+test suite.
+
 ### Normalization
 
 `apply_rules()` always runs: footnote-marker stripping, dash/ellipsis/quote
@@ -229,6 +273,16 @@ The `gui/` package (PySide6) is an **optional presentation layer** launched with
 `python echo_gui.py`. The dependency direction is strictly one-way: the GUI imports
 `echo`; the backend never imports the GUI. GUI-only deps stay out of the base
 `requirements.txt`.
+
+**One source picker, three sources.** `ConvertTab` holds a
+`gui.sources.SourceSelection` — not the text of the input field, which is read-only
+and merely *describes* the choice. This exists because a path is a poor description
+(a Gutenberg cache file is `pg2680_meditations.epub`; a research report lives in a
+temp directory) and because everything downstream used to derive the audio filename
+from the input filename, which Deep Research has none of. Hence
+`SourceSelection.name`, set in each source's modal and used for the output name and
+the default title. The split button's `defaultAction` is Browse, so the common case
+is a single click.
 
 Long-running work runs in `QThread` workers that install a temporary logging
 handler to forward backend log lines to the UI and parse the progress string. The

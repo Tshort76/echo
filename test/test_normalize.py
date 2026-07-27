@@ -148,6 +148,135 @@ class TestBuildScript:
             norm.build_script(Document(blocks=[Block(BlockKind.TABLE, "| a |")]))
 
 
+class TestBylineHeadings:
+    """Title-page bylines are marked up as headings but name nobody's chapter.
+    Left alone, a single-story text ends up with its whole body filed under
+    "By Charlotte Perkins Gilman"."""
+
+    @staticmethod
+    def _doc(byline: str) -> Document:
+        return Document(
+            title="A Story",
+            blocks=[
+                Block(BlockKind.HEADING, "A STORY", level=1),
+                Block(BlockKind.HEADING, byline, level=2),
+                Block(BlockKind.PARAGRAPH, "The story itself. " * 200),
+            ],
+        )
+
+    @pytest.mark.parametrize(
+        "byline",
+        ["By Charlotte Perkins Gilman", "by Someone", "Translated by J. M. D. Meiklejohn", "Edited by A. Nother"],
+    )
+    def test_a_byline_does_not_name_a_chapter(self, byline):
+        script = norm.build_script(self._doc(byline))
+        assert [c.title for c in script.chapters] == ["A STORY"]
+
+    def test_the_byline_is_still_spoken(self):
+        script = norm.build_script(self._doc("By Charlotte Perkins Gilman"))
+        assert "By Charlotte Perkins Gilman" in script.as_text()
+
+    def test_a_real_chapter_starting_with_by_is_not_mistaken_for_a_byline(self):
+        doc = Document(
+            title="A Book",
+            blocks=[
+                Block(BlockKind.HEADING, "CHAPTER ONE", level=2),
+                Block(BlockKind.PARAGRAPH, "One prose. " * 200),
+                Block(BlockKind.HEADING, "Bygones", level=2),
+                Block(BlockKind.PARAGRAPH, "Two prose. " * 200),
+            ],
+        )
+        assert [c.title for c in norm.build_script(doc).chapters] == ["CHAPTER ONE", "Bygones"]
+
+
+class TestSmallSectionCoalescing:
+    """Real books open with a half-title, a title page and an author line. Left
+    alone each becomes a two-second chapter before the book starts."""
+
+    @staticmethod
+    def _front_matter_doc() -> Document:
+        return Document(
+            title="A Book",
+            blocks=[
+                Block(BlockKind.HEADING, "A BOOK", level=2),
+                Block(BlockKind.HEADING, "By Someone", level=2),
+                Block(BlockKind.PARAGRAPH, "Translated by Another."),
+                Block(BlockKind.HEADING, "INTRODUCTION", level=2),
+                Block(BlockKind.PARAGRAPH, "Introductory prose. " * 60),
+                Block(BlockKind.HEADING, "CHAPTER ONE", level=2),
+                Block(BlockKind.PARAGRAPH, "Chapter one prose. " * 60),
+            ],
+        )
+
+    def test_stub_sections_are_folded_away(self):
+        script = norm.build_script(self._front_matter_doc(), min_chapter_chars=400)
+        assert [c.title for c in script.chapters] == ["INTRODUCTION", "CHAPTER ONE"]
+
+    def test_folding_loses_no_words(self):
+        doc = self._front_matter_doc()
+        script = norm.build_script(doc, min_chapter_chars=400)
+        text = script.as_text()
+        for fragment in ("A BOOK", "By Someone", "Translated by Another"):
+            assert fragment in text, fragment
+
+    def test_folding_can_be_switched_off(self):
+        script = norm.build_script(self._front_matter_doc(), min_chapter_chars=0)
+        # "By Someone" is absent whatever the threshold: a byline never names a
+        # chapter (see TestBylineHeadings).
+        assert [c.title for c in script.chapters] == ["A BOOK", "INTRODUCTION", "CHAPTER ONE"]
+        assert "By Someone" in script.as_text()
+
+    def test_a_trailing_fragment_folds_backwards(self):
+        doc = Document(
+            title="A Book",
+            blocks=[
+                Block(BlockKind.HEADING, "CHAPTER ONE", level=2),
+                Block(BlockKind.PARAGRAPH, "Chapter one prose. " * 60),
+                Block(BlockKind.HEADING, "THE END", level=2),
+                Block(BlockKind.PARAGRAPH, "Finis."),
+            ],
+        )
+        script = norm.build_script(doc, min_chapter_chars=400)
+        assert [c.title for c in script.chapters] == ["CHAPTER ONE"]
+        assert "Finis." in script.as_text()
+
+    def test_uniformly_short_sections_keep_their_chapters(self):
+        """A short document with real (if brief) chapters must not be flattened —
+        the absolute threshold alone would collapse it into one."""
+        doc = Document(
+            title="Tiny",
+            blocks=[
+                Block(BlockKind.HEADING, "ONE", level=2),
+                Block(BlockKind.PARAGRAPH, "Short."),
+                Block(BlockKind.HEADING, "TWO", level=2),
+                Block(BlockKind.PARAGRAPH, "Also short."),
+            ],
+        )
+        script = norm.build_script(doc, min_chapter_chars=400)
+        assert [c.title for c in script.chapters] == ["ONE", "TWO"]
+        assert "Short." in script.as_text()
+        assert "Also short." in script.as_text()
+
+    def test_a_stub_must_be_small_relative_to_its_neighbours(self):
+        """400 characters is a stub beside 30,000-character chapters and a real
+        chapter beside 600-character ones."""
+        long_body = "Long chapter prose. " * 200  # 4,000 chars
+        doc = Document(
+            title="Mixed",
+            blocks=[
+                Block(BlockKind.HEADING, "TITLE PAGE", level=2),
+                Block(BlockKind.PARAGRAPH, "By Someone"),
+                Block(BlockKind.HEADING, "CHAPTER ONE", level=2),
+                Block(BlockKind.PARAGRAPH, long_body),
+                Block(BlockKind.HEADING, "CHAPTER TWO", level=2),
+                Block(BlockKind.PARAGRAPH, long_body),
+            ],
+        )
+        script = norm.build_script(doc, min_chapter_chars=400)
+        assert [c.title for c in script.chapters] == ["CHAPTER ONE", "CHAPTER TWO"]
+        assert "By Someone" in script.as_text()
+
+
 class TestNormalizerSelection:
     def test_off_is_the_default_and_is_a_no_op(self):
         normalizer = norm.get_normalizer("off")

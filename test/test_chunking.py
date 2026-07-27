@@ -1,5 +1,7 @@
 """Chunking and plain-text block extraction."""
 
+import pytest
+
 import echo.constants as ec
 from echo.document import BlockKind
 from echo.extractors.text import (
@@ -112,3 +114,23 @@ class TestGutenbergStripping:
         kept, stripped = strip_gutenberg_blocks(blocks)
         assert stripped is False
         assert kept is blocks
+
+    @pytest.mark.parametrize(
+        "heading",
+        [
+            "THE FULL PROJECT GUTENBERG LICENSE",
+            "THE FULL PROJECT GUTENBERG™ LICENSE",  # the trademark sign is real
+            "THE FULL PROJECT GUTENBERG™ LICENCE",
+            "END OF THE PROJECT GUTENBERG EBOOK",
+            "START: FULL LICENSE",
+        ],
+    )
+    def test_licence_heading_variants_are_all_recognized(self, heading):
+        blocks = [
+            Block(BlockKind.PARAGRAPH, "real content"),
+            Block(BlockKind.HEADING, heading),
+            Block(BlockKind.PARAGRAPH, "licence text"),
+        ]
+        kept, stripped = strip_gutenberg_blocks(blocks)
+        assert stripped is True
+        assert [b.text for b in kept] == ["real content"]

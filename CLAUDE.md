@@ -5,7 +5,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## What this project does
 
 **echo** converts text-bearing files (PDF, EPUB, TXT, MD) into chaptered audiobooks
-(M4B by default, MP3 optionally). The pipeline has five stages:
+(M4B by default, MP3 optionally). Books can come from disk or be searched for and
+downloaded from Project Gutenberg. The pipeline has five stages:
 
 ```
 extract    -> Document    structured blocks: headings, prose, tables, figures, pages
@@ -42,6 +43,9 @@ See the README for the full `.env` reference. The env knobs most likely to matte
 # CLI
 python create_audio.py my_book.epub                       # -> my_book.m4b with chapters
 python create_audio.py my_book.pdf -e mlx -v bf_emma -s 1.5
+python create_audio.py -g "Meditations" --author "Marcus Aurelius"   # from Gutenberg
+python create_audio.py -g "art of war" --list-matches     # inspect matches + ids
+python create_audio.py --gutenberg-id 132                 # pin an exact edition
 python create_audio.py my_book.txt -f mp3 -m '{"title": "T", "author": "A"}'
 python create_audio.py my_book.pdf --first-page 30 --last-page 120 --save --transcript
 python create_audio.py --list-engines                     # which engines are ready, and why not
@@ -68,6 +72,7 @@ echo/
   core.py          # Public API: file_to_audio(), extract_document(), build_script(), convert_to_text()
   document.py      # The data model: Block/BlockKind, Document, Utterance/Chapter/Script, Timing, Segment
   normalize.py     # Rules normalization, page-artifact detection, Script assembly, optional LLM normalizers
+  gutenberg.py     # Project Gutenberg: search via Gutendex, ranked results, cached downloads, cover art
   paths.py         # resource_path(): resolves bundled data in a checkout AND a frozen build
   constants.py     # Env-driven config (separate int/float/bool readers)
   extractors/
@@ -136,12 +141,51 @@ with a division word).
 a missing Tesseract is reported once and does not abort a document that has other
 readable pages.
 
+### Project Gutenberg
+
+`echo/gutenberg.py` searches the catalogue through
+[Gutendex](https://gutendex.com) and downloads from gutenberg.org, using only the
+standard library for HTTP. Four decisions worth preserving:
+
+- **EPUB is preferred over plain text.** Gutenberg's EPUBs carry heading markup, so
+  the EPUB extractor finds real chapters; the text editions are one long stream.
+- **Ranking is title-relevance, then EPUB availability, then popularity.** Gutendex
+  searches titles *and* authors together, so "art of war" also matches a book from
+  the "War Office". Note that `_title_relevance` deliberately does **not** reward an
+  exact title match: Gutenberg's canonical editions usually carry a subtitle
+  ("Frankenstein; Or, The Modern Prometheus"), so an exact-match tier promotes
+  obscure reprints over the edition everyone reads.
+- **Downloads are cached** by book id under `GUTENBERG_DIR`
+  (default `~/.cache/echo/gutenberg`), which is outside the repo so it also works
+  from a frozen app.
+- **Author names are normalized conservatively**: "Austen, Jane" becomes "Jane
+  Austen", but "Marcus Aurelius, Emperor of Rome" is left alone.
+
+`GutenbergBook.copyrighted` is checked and warned about — Gutendex includes a few
+records hosted with permission rather than being public domain.
+
+The GUI runs search and download on `GutenbergSearchWorker` /
+`GutenbergDownloadWorker` threads; both are plain `QThread`s rather than
+`_BaseWorker`s because their results are records and objects, not a path.
+
 ### Normalization
 
 `apply_rules()` always runs: footnote-marker stripping, dash/ellipsis/quote
 handling, and `mark_page_artifacts()`, which finds running headers positionally
 (short, first-or-last block on its page, recurring across pages) rather than by
 frequency — the old frequency approach deleted recurring prose book-wide.
+
+`build_script()` makes two structural judgements beyond splitting on headings:
+
+- **A byline never names a chapter.** Title-page bylines are marked up as headings,
+  so without `_BYLINE` a single-story text files its entire body under "By Charlotte
+  Perkins Gilman". The byline stays spoken; it just doesn't create a division.
+- **Stub sections fold into a neighbour** (`_coalesce_small_sections`). A section
+  must be small in *two* senses — under `MIN_CHAPTER_CHARS` **and** under
+  `_STUB_FRACTION` of the document's median section — or a genuinely short book with
+  brief real chapters would collapse into one. Folded text becomes the next
+  section's *prelude*, so it is spoken before that chapter's heading rather than
+  after it. Nothing is ever discarded.
 
 LLM normalization is **off by default** and guarded by `_GuardedNormalizer`: the
 result is rejected and the original kept if the length drifts more than

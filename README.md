@@ -7,8 +7,13 @@ cloud voices, or a model running locally on your own Mac.
 ```bash
 python create_audio.py my_book.epub
 # -> my_book.m4b, with chapter marks, title and author
+
+python create_audio.py -g "Meditations" --author "Marcus Aurelius"
+# searches Project Gutenberg, downloads it, and narrates it — cover art included
 ```
 
+- **Bring your own book, or find one.** Point it at a file, or search Project
+  Gutenberg's 75,000 free public-domain books and convert one in a single command.
 - **Structure-aware.** Headings become chapters; tables, figures, code blocks,
   footnote markers, running headers and Project Gutenberg boilerplate are left
   out of the narration.
@@ -65,6 +70,10 @@ DEFAULT_MAX_RETRIES="3"
 
 # Structure
 CHAPTER_HEADING_LEVEL="2"       # headings at or above this level start a chapter
+MIN_CHAPTER_CHARS="400"         # fold shorter sections into a neighbour; 0 keeps all
+
+# Project Gutenberg
+GUTENBERG_DIR="~/.cache/echo/gutenberg"   # where downloaded books are cached
 
 # Google engines
 GEMINI_API_KEY="..."            # for --engine gemini and --normalize gemini
@@ -122,6 +131,46 @@ from mlx-audio's catalogue.
 > `MLX_TTS_MODEL=mlx-community/chatterbox-turbo-4bit`. `--list-engines` tells you
 > which case you're in.
 
+# Getting a book from Project Gutenberg
+
+Project Gutenberg hosts tens of thousands of public-domain books. echo can search
+the catalogue, download one, and narrate it in a single command — no account, no
+API key.
+
+```bash
+# See what matches before committing
+python create_audio.py -g "art of war" --list-matches
+
+     id   downloads  formats            title — author
+    132      13,426  epub,text,html     The Art of War — Sunzi, active 6th century B.C.
+  17405       7,795  epub,text,html     The Art of War — Sunzi, active 6th century B.C.
+  13549       2,040  epub,text,html     The Art of War — Jomini, Antoine Henri, baron de
+
+# Convert the best match, or pin an exact edition
+python create_audio.py -g "art of war"
+python create_audio.py --gutenberg-id 132 -e mlx -s 1.5
+```
+
+Results are ranked by how well the **title** matches, then by whether an EPUB
+edition exists, then by popularity — so the canonical edition wins rather than an
+obscure reprint that happens to have an exact title.
+
+Three things happen automatically:
+
+- **EPUB is preferred over plain text.** Gutenberg's EPUBs carry heading markup,
+  so you get real chapter marks. The text editions are one long stream.
+- **Title, author and cover art** come from the catalogue and are embedded in the
+  finished file, so it looks right in a library.
+- **Downloads are cached** in `~/.cache/echo/gutenberg`, so trying a second voice
+  doesn't re-fetch the book.
+
+Front matter, the licence appendix, and title-page fragments are stripped, and a
+byline heading never becomes a chapter name. `Meditations` (#2680) comes out as 17
+chapters — the introduction, the twelve books, and the appendices.
+
+In the desktop app, the **Gutenberg…** button beside the input file picker opens
+the same search, and fills in the metadata fields for you.
+
 # Usage
 
 ## Command line
@@ -160,6 +209,11 @@ python create_audio.py --list-voices -e gemini
 | `--save`, `--transcript` | also write `.txt` / `.srt` |
 | `--no-resume` | ignore chunks left by an interrupted run |
 | `--list-engines`, `--list-voices` | inspect what's available |
+| `-g, --gutenberg` | search Project Gutenberg for this title instead of using a file |
+| `--author` | narrow the Gutenberg search |
+| `--gutenberg-id` | convert an exact Gutenberg book id |
+| `--list-matches` | show Gutenberg matches with ids, then exit |
+| `--prefer` | `epub` (default, keeps chapters) or `text` |
 
 Convert a whole folder with `python bulk_generate.py /path/to/books`.
 
@@ -170,10 +224,11 @@ pip install -r requirements-gui.txt
 python echo_gui.py
 ```
 
-A cross-platform PySide6 UI: file pickers, an engine dropdown (engines needing
-setup are greyed out with the reason), a filterable voice picker with preview,
-speed slider, format choice, metadata and normalization settings behind the gear,
-live progress and a play button for the result.
+A cross-platform PySide6 UI: file pickers plus a **Gutenberg…** search button, an
+engine dropdown (engines needing setup are greyed out with the reason), a
+filterable voice picker with preview, speed slider, format choice, metadata and
+normalization settings behind the gear, live progress and a play button for the
+result.
 
 The GUI imports `echo`; the backend never imports the GUI, so the CLI keeps
 working without PySide6 installed.
@@ -292,6 +347,23 @@ import asyncio
 from echo.audio.voices import update_voice_cache_file
 
 asyncio.run(update_voice_cache_file())
+```
+
+## Project Gutenberg
+
+```python
+import echo.gutenberg as gutenberg
+import echo.core as core
+
+for book in gutenberg.search("frankenstein", limit=3):
+    print(book.id, book.label, book.available_formats())
+
+# Search, download and narrate in two steps
+downloaded = gutenberg.fetch("Meditations", author="Marcus Aurelius")
+core.file_to_audio(downloaded.path, mp3_meta=downloaded.as_meta())
+
+# Or pin an exact edition
+gutenberg.fetch(book_id=2680, prefer="epub")
 ```
 
 ## Text to audio directly

@@ -107,9 +107,11 @@ _GUTENBERG_FIELD = re.compile(
     r"credits|original publication|most recently updated)\s*:",
     re.IGNORECASE,
 )
+#: ``\W*`` between the words because Gutenberg's own headings carry a trademark
+#: sign — "THE FULL PROJECT GUTENBERG™ LICENSE" — which a plain space would miss.
 _GUTENBERG_LICENCE = re.compile(
-    r"(full project gutenberg licen[sc]e|end of (the )?project gutenberg|"
-    r"start:? full licen[sc]e)",
+    r"(full\W+project\W+gutenberg\W+licen[sc]e|end of\W+(the\W+)?project\W+gutenberg|"
+    r"start:?\W+full\W+licen[sc]e)",
     re.IGNORECASE,
 )
 

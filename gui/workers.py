@@ -127,6 +127,62 @@ class ConversionWorker(_BaseWorker):
         self._run_captured(lambda: core.file_to_audio(**self._args))
 
 
+class GutenbergSearchWorker(QThread):
+    """Searches the Project Gutenberg catalogue off the main thread.
+
+    Not a ``_BaseWorker``: its result is a list of catalogue records rather than a
+    path, and it has no progress to report.
+    """
+
+    results = Signal(list)  # list[GutenbergBook]
+    failed = Signal(str)
+
+    def __init__(self, title: str, author: str = "", language: str = "en", parent=None):
+        super().__init__(parent)
+        self._title = title
+        self._author = author
+        self._language = language
+
+    def run(self) -> None:
+        try:
+            import echo.gutenberg as gutenberg
+
+            self.results.emit(
+                gutenberg.search(self._title, self._author or None, language=self._language)
+            )
+        except Exception as exc:
+            self.failed.emit(str(exc) or exc.__class__.__name__)
+
+
+class GutenbergDownloadWorker(QThread):
+    """Downloads a chosen book (and its cover art) off the main thread."""
+
+    downloaded = Signal(object)  # DownloadedBook
+    message = Signal(str)
+    failed = Signal(str)
+
+    def __init__(self, book, prefer: str = "epub", parent=None):
+        super().__init__(parent)
+        self._book = book
+        self._prefer = prefer
+
+    def run(self) -> None:
+        handler = _SignalLogHandler(self.message.emit, lambda _pct: None, logging.INFO)
+        logger = logging.getLogger("echo.gutenberg")
+        prior = logger.level
+        logger.setLevel(logging.INFO)
+        logger.addHandler(handler)
+        try:
+            import echo.gutenberg as gutenberg
+
+            self.downloaded.emit(gutenberg.download(self._book, prefer=self._prefer))
+        except Exception as exc:
+            self.failed.emit(str(exc) or exc.__class__.__name__)
+        finally:
+            logger.removeHandler(handler)
+            logger.setLevel(prior)
+
+
 class PreviewWorker(_BaseWorker):
     """Synthesizes a short spoken sample for a voice and opens it in the OS player."""
 

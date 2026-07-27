@@ -21,6 +21,7 @@ import re
 import urllib.error
 import urllib.request
 from collections import Counter, defaultdict
+from statistics import median
 from typing import Protocol
 
 import echo.constants as ec
@@ -34,6 +35,9 @@ log = logging.getLogger(__name__)
 FOOTNOTE_REF = re.compile(r"([^\d][;,.?!)])\d{1,2}(\s)")
 _PAGE_NUMBER_ONLY = re.compile(r"^[\s\divxlcIVXLC.\-—–]+$")
 _MULTI_SPACE = re.compile(r"[ \t]{2,}")
+#: A section must also be under this fraction of the document's typical section
+#: length to count as a stub rather than a genuinely short chapter.
+_STUB_FRACTION = 0.2
 _ELLIPSIS = re.compile(r"\.{3,}|(?:\.\s){2,}\.")
 _DASH_RUN = re.compile(r"\s*(?:—|–|--+)\s*")
 
@@ -293,6 +297,11 @@ def get_normalizer(name: str = None) -> Normalizer:
 # ─────────────────────────────────────────────────────────────────────────────
 
 
+#: A title-page byline is marked up as a heading, but it names nobody's chapter.
+#: Left alone it becomes the title of whatever follows — a single-story text ends
+#: up with its whole body under "By Charlotte Perkins Gilman".
+_BYLINE = re.compile(r"^\s*(by|translated by|edited by|illustrated by|adapted by)\s+\S", re.IGNORECASE)
+
 #: Headings that introduce navigation rather than prose. When such a section has
 #: no spoken body (its content was a table of contents, say), announcing the
 #: title alone is just noise in the audio.
@@ -311,16 +320,70 @@ def _chapter_title(index: int, heading: str | None, fallback: str | None) -> str
     return f"Chapter {index + 1}"
 
 
+def _coalesce_small_sections(
+    sections: list[tuple[str | None, list[str]]],
+    minimum: int,
+) -> list[tuple[str | None, list[str], list[str]]]:
+    """Fold sections with too little text into their neighbour.
+
+    Real books open with a half-title, a title page and an author line, each of
+    which is a heading with a handful of words under it. Left alone they become a
+    run of two-second chapters before the book starts. Nothing is discarded — the
+    text (and its heading) moves into the next section, or the previous one for a
+    trailing fragment.
+
+    A section has to be small in *two* senses to count as a stub: under
+    ``minimum`` characters, and a small fraction of the typical section in this
+    document. Judging on the absolute figure alone would flatten a genuinely short
+    document — a ten-page essay with real chapters of 300 words each — into one
+    chapter.
+    """
+    def size(runs: list[str]) -> int:
+        return sum(len(r) for r in runs)
+
+    if minimum <= 0 or len(sections) < 2:
+        return [(title, [], runs) for title, runs in sections]
+
+    typical = median([size(runs) for _title, runs in sections]) or 0
+    ceiling = min(minimum, max(1.0, typical * _STUB_FRACTION))
+
+    # A folded fragment becomes the *prelude* of the section it joins, so it is
+    # spoken before that chapter's own heading — "A Book. By Someone. Chapter One."
+    # rather than "Chapter One. A Book. By Someone."
+    merged: list[tuple[str | None, list[str], list[str]]] = []
+    carried: list[str] = []
+    for title, runs in sections:
+        if size(runs) + size(carried) < ceiling:
+            # Keep the heading as spoken text so no words are lost.
+            carried = carried + ([f"{title}."] if title else []) + runs
+            continue
+        merged.append((title, carried, runs))
+        carried = []
+
+    if carried:
+        if merged:
+            last_title, last_prelude, last_runs = merged[-1]
+            merged[-1] = (last_title, last_prelude, last_runs + carried)
+        else:
+            merged.append((sections[0][0], [], carried))
+
+    if len(merged) != len(sections):
+        log.info(f"Folded {len(sections) - len(merged)} short section(s) into neighbouring chapters")
+    return merged
+
+
 def build_script(
     doc: Document,
     chunk_size: int = None,
     chapter_level: int = None,
     normalizer: Normalizer = None,
+    min_chapter_chars: int = None,
 ) -> Script:
     """Group a Document into chapters, then into engine-sized utterances."""
     chunk_size = chunk_size or ec.CHUNK_SIZE
     chapter_level = chapter_level or ec.CHAPTER_HEADING_LEVEL
     normalizer = normalizer or RulesNormalizer()
+    min_chapter_chars = ec.MIN_CHAPTER_CHARS if min_chapter_chars is None else min_chapter_chars
 
     # (heading, [text runs]) pairs, split at qualifying headings.
     sections: list[tuple[str | None, list[str]]] = []
@@ -329,7 +392,12 @@ def build_script(
 
     for block in doc.spoken():
         starts_chapter = (
-            block.kind == BlockKind.HEADING and 0 < block.level <= chapter_level and (body or heading)
+            block.kind == BlockKind.HEADING
+            and 0 < block.level <= chapter_level
+            and (body or heading)
+            # A byline is front matter, not a division: keep it as spoken content
+            # of the section it sits in rather than letting it name a chapter.
+            and not _BYLINE.match(block.text)
         )
         if starts_chapter:
             sections.append((heading, body))
@@ -341,16 +409,22 @@ def build_script(
         body.append(block.text)
 
     sections.append((heading, body))
+    sections = _coalesce_small_sections(sections, min_chapter_chars)
 
     chapters: list[Chapter] = []
-    for i, (title, runs) in enumerate(sections):
-        text = "\n\n".join(r for r in runs if r.strip())
-        if not text.strip() and title and _NAVIGATION_HEADINGS.match(title):
+    for i, (title, prelude, runs) in enumerate(sections):
+        body = "\n\n".join(r for r in runs if r.strip())
+        if not body.strip() and not prelude and title and _NAVIGATION_HEADINGS.match(title):
             log.debug(f"Skipping navigation section '{title}' — no spoken content")
             continue
+        # Prelude (any folded front matter), then the chapter's own heading, then
+        # its body, each separated by a paragraph break the engine reads as a pause.
+        parts = list(prelude)
         if title:
-            # Speak the chapter title, then pause before the body.
-            text = f"{title}.\n\n{text}" if text else f"{title}."
+            parts.append(f"{title}.")
+        if body:
+            parts.append(body)
+        text = "\n\n".join(p for p in parts if p.strip())
         if not text.strip():
             continue
         pieces = [normalizer.normalize(c) for c in to_chunks(text, chunk_size)]

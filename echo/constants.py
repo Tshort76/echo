@@ -73,6 +73,10 @@ WRITE_TRANSCRIPT = _get_env_bool("WRITE_TRANSCRIPT", False)
 ##### Structure
 #: Headings at or above this level start a new chapter.
 CHAPTER_HEADING_LEVEL = _get_env_int("CHAPTER_HEADING_LEVEL", 2)
+#: A section shorter than this is folded into its neighbour rather than becoming a
+#: chapter of its own. Title pages and half-titles otherwise produce a run of
+#: two-second chapters before the book starts. Set to 0 to keep every heading.
+MIN_CHAPTER_CHARS = _get_env_int("MIN_CHAPTER_CHARS", 400)
 
 ##### Google engines
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")

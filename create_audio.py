@@ -2,9 +2,11 @@ import argparse
 import json
 import logging
 import sys
+from pathlib import Path
 
 import echo.constants as ec
 import echo.core as core
+import echo.gutenberg as gutenberg
 from echo.audio.assemble import FORMATS
 from echo.audio.engines import available_engines, engine_names
 from echo.extractors import SUPPORTED_SUFFIXES
@@ -49,6 +51,34 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("file_path", nargs="?", help="Path to the source document.")
     parser.add_argument("-o", "--output", dest="output", default=None, help="Path for the audio file.")
+
+    gutenberg = parser.add_argument_group("Project Gutenberg")
+    gutenberg.add_argument(
+        "-g",
+        "--gutenberg",
+        dest="gutenberg",
+        metavar="TITLE",
+        default=None,
+        help="Search Project Gutenberg for this title and convert the best match, instead of a local file.",
+    )
+    gutenberg.add_argument("--author", default=None, help="Narrow the Gutenberg search to this author.")
+    gutenberg.add_argument(
+        "--gutenberg-id", type=int, default=None, help="Convert this exact Project Gutenberg book id."
+    )
+    gutenberg.add_argument(
+        "--language", default="en", help="Catalogue language code to search. (Default: en)"
+    )
+    gutenberg.add_argument(
+        "--list-matches",
+        action="store_true",
+        help="Show what the Gutenberg search finds (with ids) and exit, without converting.",
+    )
+    gutenberg.add_argument(
+        "--prefer",
+        choices=("epub", "text"),
+        default="epub",
+        help="Which Gutenberg edition to download. EPUB keeps chapter structure. (Default: epub)",
+    )
     parser.add_argument(
         "-e",
         "--engine",
@@ -128,8 +158,47 @@ def main(argv: list[str] = None) -> int:
         core.print_voices(args.engine)
         return 0
 
+    if args.list_matches:
+        if not (args.gutenberg or args.author):
+            build_parser().error("--list-matches needs --gutenberg TITLE (and optionally --author)")
+        matches = gutenberg.search(args.gutenberg or "", args.author, language=args.language)
+        if not matches:
+            print("No matches. Try fewer words, or drop --author.")
+            return 1
+        print(f"{'id':>7}  {'downloads':>10}  formats            title — author")
+        for book in matches:
+            formats = ",".join(book.available_formats())
+            print(f"{book.id:>7}  {book.download_count:>10,}  {formats:<18} {book.title} — {book.author}")
+        print("\nConvert one with:  --gutenberg-id <id>")
+        return 0
+
+    if args.gutenberg or args.gutenberg_id:
+        if args.file_path:
+            build_parser().error("Give either a file path or a Gutenberg search, not both.")
+        try:
+            downloaded = gutenberg.fetch(
+                title=args.gutenberg,
+                author=args.author,
+                book_id=args.gutenberg_id,
+                language=args.language,
+                prefer=args.prefer,
+            )
+        except (gutenberg.GutenbergError, ValueError) as ex:
+            log.error(str(ex))
+            return 1
+        log.info(f"Converting '{downloaded.book.title}' by {downloaded.book.author}")
+        args.file_path = str(downloaded.path)
+        # Fill in metadata from the catalogue, without overriding anything given
+        # explicitly on the command line.
+        args.mp3_meta = {**downloaded.as_meta(), **args.mp3_meta}
+        if not args.output:
+            args.output = str(Path(downloaded.path).with_suffix(f".{args.fmt}").name)
+
     if not args.file_path:
-        build_parser().error("file_path is required (or use --list-voices / --list-engines)")
+        build_parser().error(
+            "Give a file path, or search Project Gutenberg with --gutenberg TITLE "
+            "(or use --list-voices / --list-engines)"
+        )
 
     parser_configs = {
         "first_page": args.first_page,

@@ -44,7 +44,11 @@ class TestMarkdownFile:
         doc = core.extract_document(path)
         assert doc.title == "A Book"
         script = core.build_script(doc)
-        assert [c.title for c in script.chapters] == ["A Book", "One", "Two"]
+        # The bare "# A Book" title carries no prose of its own, so it is spoken at
+        # the head of the first real chapter rather than becoming a chapter that
+        # says only its own name.
+        assert [c.title for c in script.chapters] == ["One", "Two"]
+        assert script.utterances()[0].text.startswith("A Book.")
         assert "| a | b |" not in script.as_text()
 
     def test_footnote_markers_are_removed_from_prose(self, tmp_path):

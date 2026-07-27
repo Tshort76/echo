@@ -29,6 +29,8 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QLineEdit,
+    QListWidget,
+    QListWidgetItem,
     QMainWindow,
     QMessageBox,
     QPlainTextEdit,
@@ -49,6 +51,8 @@ from gui import voices as gv
 from gui.style import apply_theme
 from gui.workers import (
     ConversionWorker,
+    GutenbergDownloadWorker,
+    GutenbergSearchWorker,
     PreviewWorker,
     open_in_default_app,
 )
@@ -338,6 +342,162 @@ class SettingsDialog(QDialog):
             self.cover_edit.setText(path)
 
 
+class GutenbergDialog(QDialog):
+    """Search Project Gutenberg and download a book to convert.
+
+    Search and download both run on worker threads — the catalogue is a network
+    call, and a book is a few hundred kilobytes — so the dialog never blocks.
+    """
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Find a book on Project Gutenberg")
+        self.setModal(True)
+        self.setMinimumSize(620, 460)
+
+        self.result_book = None  # set to a DownloadedBook on success
+        self._books: list = []
+        self._search_worker = None
+        self._download_worker = None
+
+        self.title_edit = QLineEdit()
+        self.title_edit.setPlaceholderText("Title, e.g. Meditations")
+        self.title_edit.returnPressed.connect(self._search)
+        self.author_edit = QLineEdit()
+        self.author_edit.setPlaceholderText("Author (optional)")
+        self.author_edit.returnPressed.connect(self._search)
+
+        self.search_btn = QPushButton("Search")
+        self.search_btn.clicked.connect(self._search)
+
+        self.prefer_combo = QComboBox()
+        self.prefer_combo.addItem("EPUB — keeps chapter structure", "epub")
+        self.prefer_combo.addItem("Plain text", "text")
+
+        form = QFormLayout()
+        form.setLabelAlignment(Qt.AlignLeft | Qt.AlignVCenter)
+        form.setVerticalSpacing(10)
+        form.addRow("Title:", self._row(self.title_edit, self.search_btn))
+        form.addRow("Author:", self.author_edit)
+        form.addRow("Edition:", self.prefer_combo)
+
+        self.results_list = QListWidget()
+        self.results_list.setAlternatingRowColors(True)
+        # Gutenberg titles run long; wrap them instead of scrolling sideways.
+        self.results_list.setWordWrap(True)
+        self.results_list.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.results_list.itemSelectionChanged.connect(self._sync_buttons)
+        self.results_list.itemDoubleClicked.connect(self._download)
+
+        self.status = QLabel("Public-domain books, free to download.")
+        self.status.setWordWrap(True)
+
+        # No ampersand: QPushButton would read it as a mnemonic accelerator.
+        self.download_btn = QPushButton("Download and use")
+        self.download_btn.setObjectName("primary")
+        self.download_btn.setEnabled(False)
+        self.download_btn.clicked.connect(self._download)
+        cancel = QPushButton("Cancel")
+        cancel.clicked.connect(self.reject)
+
+        buttons = QHBoxLayout()
+        buttons.addStretch(1)
+        buttons.addWidget(cancel)
+        buttons.addWidget(self.download_btn)
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(18, 18, 18, 18)
+        layout.setSpacing(10)
+        layout.addLayout(form)
+        results_heading = QLabel("Matches")
+        results_heading.setObjectName("sectionHeading")
+        layout.addWidget(results_heading)
+        layout.addWidget(self.results_list, 1)
+        layout.addWidget(self.status)
+        layout.addLayout(buttons)
+
+    @staticmethod
+    def _row(field, button) -> QHBoxLayout:
+        row = QHBoxLayout()
+        row.setContentsMargins(0, 0, 0, 0)
+        row.addWidget(field, 1)
+        row.addWidget(button)
+        return row
+
+    def _busy(self, busy: bool, message: str = "") -> None:
+        self.search_btn.setEnabled(not busy)
+        self.results_list.setEnabled(not busy)
+        self.download_btn.setEnabled(not busy and self.results_list.currentRow() >= 0)
+        if message:
+            self.status.setText(message)
+
+    def _sync_buttons(self) -> None:
+        self.download_btn.setEnabled(self.results_list.currentRow() >= 0)
+
+    # -- search ------------------------------------------------------------- #
+    def _search(self) -> None:
+        title = self.title_edit.text().strip()
+        author = self.author_edit.text().strip()
+        if not title and not author:
+            self.status.setText("Type a title (or an author) to search for.")
+            return
+
+        self.results_list.clear()
+        self._books = []
+        self._busy(True, "Searching Project Gutenberg…")
+
+        self._search_worker = GutenbergSearchWorker(title, author)
+        self._search_worker.results.connect(self._on_results)
+        self._search_worker.failed.connect(self._on_failed)
+        self._search_worker.start()
+
+    _MAX_LABEL = 110
+
+    def _on_results(self, books: list) -> None:
+        self._books = books
+        for book in books:
+            # A few catalogue titles are paragraph-length; keep one row from
+            # filling the pane, with the whole thing in the tooltip.
+            label = book.label
+            if len(label) > self._MAX_LABEL:
+                label = label[: self._MAX_LABEL - 1].rstrip() + "…"
+            item = QListWidgetItem(label)
+            item.setToolTip(
+                f"{book.title}\n{book.author}\n\n"
+                f"Formats: {', '.join(book.available_formats())}\n"
+                f"Languages: {', '.join(book.languages)}"
+            )
+            self.results_list.addItem(item)
+        if books:
+            self.results_list.setCurrentRow(0)
+            self._busy(False, f"{len(books)} match(es). Pick one, or refine the search.")
+        else:
+            self._busy(False, "Nothing matched. Try fewer words, or clear the author.")
+
+    # -- download ----------------------------------------------------------- #
+    def _download(self) -> None:
+        row = self.results_list.currentRow()
+        if row < 0 or row >= len(self._books):
+            return
+        book = self._books[row]
+        self._busy(True, f"Downloading '{book.title}'…")
+
+        self._download_worker = GutenbergDownloadWorker(book, self.prefer_combo.currentData())
+        self._download_worker.downloaded.connect(self._on_downloaded)
+        self._download_worker.message.connect(self.status.setText)
+        self._download_worker.failed.connect(self._on_failed)
+        self._download_worker.start()
+
+    def _on_downloaded(self, downloaded) -> None:
+        self.result_book = downloaded
+        self.accept()
+
+    def _on_failed(self, message: str) -> None:
+        self._busy(False)
+        self.status.setText(message)
+        QMessageBox.warning(self, "Project Gutenberg", message)
+
+
 class FitScrollArea(QScrollArea):
     """A scroll area whose size hint tracks its content.
 
@@ -366,7 +526,14 @@ class ConvertTab(QWidget):
         self.input_edit = QLineEdit()
         input_browse = QPushButton("Browse…")
         input_browse.clicked.connect(self._pick_input)
-        input_row = self._row(self.input_edit, input_browse)
+        self.gutenberg_btn = QPushButton("Gutenberg…")
+        self.gutenberg_btn.setToolTip("Search Project Gutenberg for a free public-domain book")
+        self.gutenberg_btn.clicked.connect(self._pick_gutenberg)
+        input_row = QHBoxLayout()
+        input_row.setContentsMargins(0, 0, 0, 0)
+        input_row.addWidget(self.input_edit, 1)
+        input_row.addWidget(input_browse)
+        input_row.addWidget(self.gutenberg_btn)
 
         # Engine choices come from the backend registry; unavailable ones stay
         # visible but disabled, with the reason in their tooltip.
@@ -488,6 +655,29 @@ class ConvertTab(QWidget):
         current = self.output_edit.text().strip()
         if current:
             self.output_edit.setText(str(Path(current).with_suffix(f".{self.current_format()}")))
+
+    def _pick_gutenberg(self) -> None:
+        """Search Project Gutenberg, then use the download as the input file.
+
+        The catalogue also gives us title, author and cover art, so the metadata
+        fields are filled in — without overwriting anything already typed there.
+        """
+        dialog = GutenbergDialog(self)
+        dialog.title_edit.setText(self.settings.title_edit.text().strip())
+        if dialog.exec() != QDialog.Accepted or dialog.result_book is None:
+            return
+
+        downloaded = dialog.result_book
+        self.input_edit.setText(str(downloaded.path))
+        self.output_edit.clear()  # the previous output name no longer fits
+        self._autofill_output(str(downloaded.path))
+
+        if not self.settings.title_edit.text().strip():
+            self.settings.title_edit.setText(downloaded.book.title)
+        if not self.settings.author_edit.text().strip():
+            self.settings.author_edit.setText(downloaded.book.author)
+        if downloaded.cover_path and not self.settings.cover_edit.text().strip():
+            self.settings.cover_edit.setText(str(downloaded.cover_path))
 
     def _autofill_output(self, input_path: str) -> None:
         if self.output_edit.text().strip():

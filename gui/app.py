@@ -283,7 +283,11 @@ class SettingsDialog(QDialog):
 
         # --- Output & visibility ---
         self.save_text = QCheckBox("Save the narrated text (.txt)")
-        self.write_transcript = QCheckBox("Save a timed transcript (.srt), when available")
+        # Kept short so the label fits the dialog's width; the caveat is a tooltip.
+        self.write_transcript = QCheckBox("Save a timed transcript (.srt)")
+        self.write_transcript.setToolTip(
+            "Only the Edge engine reports word timings, so this has no effect on the others."
+        )
         self.verbosity = QComboBox()
         self.verbosity.addItem("Info", logging.INFO)
         self.verbosity.addItem("Errors only", logging.ERROR)

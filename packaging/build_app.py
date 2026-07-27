@@ -21,8 +21,9 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 def _check_python() -> None:
     major, minor = sys.version_info[:2]
     if (major, minor) >= (3, 14):
-        print(f"⚠️  Python {major}.{minor}: PyInstaller + PySide6/opencv hooks are less "
-              "proven here. If the build or the frozen app misbehaves, retry in a "
+        print(f"⚠️  Python {major}.{minor}: PyInstaller + PySide6 hooks are less proven "
+              "here, and Kokoro's misaki phonemizer cannot install (spaCy has no 3.14 "
+              "wheels). If the build or the frozen app misbehaves, retry in a "
               "3.11–3.13 build venv.")
     elif (major, minor) < (3, 11):
         print(f"⚠️  Python {major}.{minor} is older than recommended (3.11–3.13).")

@@ -1,0 +1,15 @@
+# Google speech engines (optional).
+#
+#   --engine gemini         needs only GEMINI_API_KEY in your .env
+#   --engine google-cloud   needs Application Default Credentials, and gives you
+#                           the permanent free tier (4M Standard / 1M WaveNet
+#                           characters a month). The REST API does not accept
+#                           plain API keys, so run:
+#                               gcloud auth application-default login
+#                           or point GOOGLE_APPLICATION_CREDENTIALS at a
+#                           service-account JSON file.
+#
+# google-genai also backs `--normalize gemini`.
+-r requirements.txt
+google-genai==2.14.0
+google-cloud-texttospeech==2.37.0

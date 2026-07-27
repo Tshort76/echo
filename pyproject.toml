@@ -1,0 +1,46 @@
+[project]
+name = "echo-tts"
+version = "0.2.0"
+description = "Turn PDFs, EPUBs, Markdown and text files into chaptered audiobooks"
+readme = "README.md"
+requires-python = ">=3.11"
+license = { file = "LICENSE" }
+
+dependencies = [
+    "python-dotenv==1.2.2",
+    "edge-tts==7.2.8",
+    "mutagen==1.48.1",
+    "pymupdf==1.28.0",
+    "pymupdf4llm==1.28.0",
+    "EbookLib==0.20",
+    "beautifulsoup4==4.15.0",
+]
+
+[project.optional-dependencies]
+# Gemini TTS + Google Cloud TTS engines, and the gemini normalizer.
+google = ["google-genai==2.14.0", "google-cloud-texttospeech==2.37.0"]
+# On-device synthesis on Apple Silicon. See requirements-local.txt for the
+# Kokoro/misaki/Python-3.14 caveat.
+local = ["mlx-audio==0.4.6"]
+# Structured extraction for documents the fast path mangles.
+docling = ["docling>=2.115.0"]
+gui = ["PySide6>=6.6"]
+dev = ["pytest>=8.0"]
+
+[project.scripts]
+echo-audio = "create_audio:main"
+
+[tool.setuptools]
+packages = ["echo", "echo.audio", "echo.audio.engines", "echo.extractors"]
+
+[tool.pytest.ini_options]
+testpaths = ["test"]
+# Resolve `import echo...` from the repo root, so pytest works from anywhere.
+pythonpath = ["."]
+filterwarnings = ["ignore::DeprecationWarning"]
+
+[tool.black]
+line-length = 118
+
+[tool.ruff]
+line-length = 118

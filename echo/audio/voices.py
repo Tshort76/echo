@@ -1,54 +1,69 @@
+"""Voice discovery.
+
+Cross-engine listing lives in :mod:`echo.audio.engines`; what remains here is the
+edge-tts voice cache — ``resources/voices.csv``, which ships with the app so the
+GUI can populate its dropdown without a network round trip.
+"""
+
+from __future__ import annotations
+
+import logging
 from pathlib import Path
-import edge_tts
+
 import echo.constants as ec
 
+log = logging.getLogger(__name__)
 
-async def _request_voices() -> dict[str, list[str]]:
-    voices = await edge_tts.list_voices()
-    voices = sorted(voices, key=lambda voice: voice["ShortName"])
 
-    voice_strs = []
+async def _request_voices() -> list[str]:
+    """Ask the Edge service for its current voices, in the cache's CSV shape."""
+    from echo.audio.engines.edge import list_live_voices
+
+    voices = sorted(await list_live_voices(), key=lambda voice: voice["ShortName"])
+    rows = []
     for v in voices:
         fields = [v["ShortName"]] + v["ShortName"].split("-")[:2] + [v["Gender"]]
-        voice_strs.append(",".join(fields) + ',"' + ",".join(v["VoiceTag"]["VoicePersonalities"]) + '"')
-    return voice_strs
+        personalities = ",".join(v.get("VoiceTag", {}).get("VoicePersonalities", []))
+        rows.append(",".join(fields) + ',"' + personalities + '"')
+    return rows
 
 
-async def update_voice_cache_file():
-    voices = await _request_voices()
-    with open(ec.VOICE_CACHE_FILE, "w") as fp:
-        s = ""
-        for v in voices:
-            s += v + "\n"
-        fp.write(s)
+async def update_voice_cache_file(path: str | Path = None) -> Path:
+    """Refresh ``resources/voices.csv`` from the live Edge voice list."""
+    path = Path(path or ec.VOICE_CACHE_FILE)
+    rows = await _request_voices()
+    path.write_text("\n".join(rows) + "\n", encoding="utf-8")
+    log.info(f"Wrote {len(rows)} voices to {path}")
+    return path
 
 
-async def find_voices(lang: str = None, gender: str = None, tag: str = None, use_cache: bool = True) -> list[str]:
-    """Find available edge-tts voices that match the search criteria
+async def find_voices(
+    lang: str = None,
+    gender: str = None,
+    tag: str = None,
+    use_cache: bool = True,
+) -> list[str]:
+    """Find edge-tts voices matching the given criteria.
 
     Args:
-        lang (str, optional): filter by language ('en', 'es', 'fr'). Defaults to None.
-        gender (str, optional): filter by gender ('Male', 'Female'). Defaults to None.
-        tag (str, optional): filter by tag/description. Defaults to None.
-        use_cache (bool, optional): Pull from voices.csv cache file. Defaults to True.
+        lang: language code filter ('en', 'es', 'fr').
+        gender: 'Male' or 'Female'.
+        tag: substring match against the personality tags or locale.
+        use_cache: read ``resources/voices.csv`` instead of calling the service.
 
     Returns:
-        list[str]: voice descriptions in csv form of "name,language,locale,gender,tags"
+        Voice descriptions as "name,language,locale,gender,tags".
     """
-    if use_cache and Path(ec.VOICE_CACHE_FILE).exists():
-        with open(ec.VOICE_CACHE_FILE, "r") as fp:
-            voices = [l.strip() for l in fp.readlines()]
+    cache = Path(ec.VOICE_CACHE_FILE)
+    if use_cache and cache.exists():
+        voices = [line.strip() for line in cache.read_text(encoding="utf-8").splitlines() if line.strip()]
     else:
         voices = await _request_voices()
 
     if lang:
-        _filter = lambda v: "," + lang + "," in v
-        voices = filter(_filter, voices)
+        voices = [v for v in voices if f",{lang}," in v]
     if gender:
-        _filter = lambda v: "," + gender + "," in v
-        voices = filter(_filter, voices)
+        voices = [v for v in voices if f",{gender}," in v]
     if tag:
-        _filter = lambda v: tag in v
-        voices = filter(_filter, voices)
-
-    return list(voices)
+        voices = [v for v in voices if tag in v]
+    return voices

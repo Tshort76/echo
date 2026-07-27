@@ -8,8 +8,8 @@ Requires the GUI dependencies:
 
     pip install -r requirements-gui.txt
 
-The CLI entry points (create_audio.py, deep_research_cli.py) do not depend on
-this file or on PySide6 — the GUI is a separate, optional layer.
+The CLI entry points (create_audio.py, bulk_generate.py) do not depend on this
+file or on PySide6 — the GUI is a separate, optional layer.
 """
 
 import sys

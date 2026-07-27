@@ -1,8 +1,12 @@
-"""echo desktop GUI — a PySide6 front end for the file→MP3 and Deep Research flows.
+"""echo desktop GUI — a PySide6 front end for the document→audiobook pipeline.
 
 Run via ``python echo_gui.py`` from the repo root. This module imports the
 ``echo`` backend but the backend never imports it: the CLI keeps working with no
 knowledge that a GUI exists.
+
+The engine dropdown is driven by the backend registry, so engines that need
+setup (an API key, a model download) appear greyed with the reason attached
+rather than failing once a conversion has started.
 """
 
 from __future__ import annotations
@@ -30,18 +34,17 @@ from PySide6.QtWidgets import (
     QPlainTextEdit,
     QProgressBar,
     QPushButton,
-    QRadioButton,
     QScrollArea,
     QSlider,
     QSpinBox,
     QStyle,
-    QTabWidget,
     QToolButton,
     QVBoxLayout,
     QWidget,
 )
 
 import echo.constants as ec
+from echo.audio.assemble import FORMATS
 from gui import voices as gv
 from gui.style import apply_theme
 from gui.workers import (
@@ -49,10 +52,12 @@ from gui.workers import (
     PreviewWorker,
     open_in_default_app,
 )
-# DeepResearchWorker is intentionally not imported here — the Deep Research UI is
-# parked (see DeepResearchTab / MainWindow). Re-add it when restoring the tab.
 
 SUPPORTED_INPUTS = "Supported files (*.txt *.md *.pdf *.epub);;All files (*)"
+FORMAT_BLURBS = {
+    "m4b": "M4B — audiobook with chapter marks",
+    "mp3": "MP3 — plays everywhere, no chapters",
+}
 
 
 # --------------------------------------------------------------------------- #
@@ -97,10 +102,11 @@ class VoicePicker(QFrame):
     """A bordered 'voice' component: a filter row (language/gender) above the
     actual voice selector, whose leading audio button previews the voice."""
 
-    def __init__(self, default_voice: str, parent=None):
+    def __init__(self, default_voice: str, engine: str = None, parent=None):
         super().__init__(parent)
         self.setObjectName("voicebox")
-        self._all_voices = gv.load_voices()
+        self._engine = engine or ec.DEFAULT_ENGINE
+        self._all_voices = gv.load_voices(self._engine)
         self._default_voice = default_voice
 
         self.lang_combo = QComboBox()
@@ -118,22 +124,8 @@ class VoicePicker(QFrame):
         self.preview_btn.setCursor(Qt.PointingHandCursor)
         self.preview_btn.setToolTip("Preview — play a short sample of this voice")
 
-        if not self._all_voices:
-            # No cache available — fall back to free-text entry.
-            self.voice_combo.setEditable(True)
-            self.voice_combo.setEditText(default_voice)
-
         self.gender_combo.addItems(["All", "Female", "Male"])
-        self.lang_combo.addItem("All", None)
-        for lang in gv.languages(self._all_voices):
-            self.lang_combo.addItem(lang, lang)
-
-        # Preselect the default voice's language, if we can find it.
-        default = next((v for v in self._all_voices if v.short_name == default_voice), None)
-        if default:
-            idx = self.lang_combo.findData(default.language)
-            if idx >= 0:
-                self.lang_combo.setCurrentIndex(idx)
+        self._reload_filters()
 
         self.lang_combo.currentIndexChanged.connect(self._repopulate)
         self.gender_combo.currentIndexChanged.connect(self._repopulate)
@@ -158,6 +150,43 @@ class VoicePicker(QFrame):
         # Row 1 — the voice selector (with preview on the right)
         grid.addLayout(pick_row, 1, 0, 1, 5)
 
+    def _reload_filters(self) -> None:
+        """Rebuild the language list for the current engine's voices."""
+        editable = not self._all_voices
+        self.voice_combo.setEditable(editable)
+        if editable:
+            # The engine can't enumerate voices — let the user type one.
+            self.voice_combo.setEditText(self._default_voice)
+
+        self.lang_combo.blockSignals(True)
+        self.lang_combo.clear()
+        self.lang_combo.addItem("All", None)
+        for lang in gv.languages(self._all_voices):
+            self.lang_combo.addItem(lang, lang)
+
+        # Preselect the default voice's language, if we can find it.
+        default = next((v for v in self._all_voices if v.id == self._default_voice), None)
+        if default:
+            idx = self.lang_combo.findData(default.language)
+            if idx >= 0:
+                self.lang_combo.setCurrentIndex(idx)
+        self.lang_combo.blockSignals(False)
+
+        has_filters = bool(self._all_voices)
+        self.lang_combo.setEnabled(has_filters)
+        self.gender_combo.setEnabled(has_filters and any(v.gender for v in self._all_voices))
+
+    def set_engine(self, engine_name: str, default_voice: str = None) -> None:
+        """Switch to another engine's voice catalogue."""
+        self._engine = engine_name
+        self._all_voices = gv.load_voices(engine_name)
+        if default_voice:
+            self._default_voice = default_voice
+        elif self._all_voices:
+            self._default_voice = self._all_voices[0].id
+        self._reload_filters()
+        self._repopulate()
+
     def _repopulate(self) -> None:
         if not self._all_voices:
             return
@@ -170,7 +199,7 @@ class VoicePicker(QFrame):
         self.voice_combo.blockSignals(True)
         self.voice_combo.clear()
         for v in matches:
-            self.voice_combo.addItem(v.display, v.short_name)
+            self.voice_combo.addItem(gv.display(v), v.id)
         # Try to keep the prior selection; otherwise prefer the default voice.
         for target in (previous, self._default_voice):
             idx = self.voice_combo.findData(target)
@@ -232,8 +261,25 @@ class SettingsDialog(QDialog):
         meta_form.addRow("Cover image:", cover_row)
         meta_form.addRow("PDF page range:", page_row)
 
+        # --- Narration ---
+        self.normalizer = QComboBox()
+        self.normalizer.addItem("Off — deterministic rules only", "off")
+        self.normalizer.addItem("Local model (LM Studio / Ollama)", "local")
+        self.normalizer.addItem("Gemini (needs GEMINI_API_KEY)", "gemini")
+        idx = self.normalizer.findData(ec.NORMALIZER)
+        if idx >= 0:
+            self.normalizer.setCurrentIndex(idx)
+        self.normalizer.setToolTip(
+            "Optional: have a language model expand abbreviations, numbers and "
+            "symbols into spoken words. Guarded so it cannot rewrite your prose."
+        )
+        norm_row = QHBoxLayout()
+        norm_row.setContentsMargins(0, 0, 0, 0)
+        norm_row.addWidget(self.normalizer, 1)
+
         # --- Output & visibility ---
-        self.save_text = QCheckBox("Save the cleaned intermediate text (.txt)")
+        self.save_text = QCheckBox("Save the narrated text (.txt)")
+        self.write_transcript = QCheckBox("Save a timed transcript (.srt), when available")
         self.verbosity = QComboBox()
         self.verbosity.addItem("Info", logging.INFO)
         self.verbosity.addItem("Errors only", logging.ERROR)
@@ -247,10 +293,18 @@ class SettingsDialog(QDialog):
         vis_form.setLabelAlignment(Qt.AlignLeft | Qt.AlignVCenter)
         vis_form.setVerticalSpacing(10)
         vis_form.addRow("", self.save_text)
+        vis_form.addRow("", self.write_transcript)
         vis_form.addRow("Output verbosity:", verb_row)
+
+        norm_form = QFormLayout()
+        norm_form.setLabelAlignment(Qt.AlignLeft | Qt.AlignVCenter)
+        norm_form.setVerticalSpacing(10)
+        norm_form.addRow("Text normalization:", norm_row)
 
         meta_heading = QLabel("Metadata")
         meta_heading.setObjectName("sectionHeading")
+        norm_heading = QLabel("Narration")
+        norm_heading.setObjectName("sectionHeading")
         vis_heading = QLabel("Output & visibility")
         vis_heading.setObjectName("sectionHeading")
 
@@ -267,6 +321,9 @@ class SettingsDialog(QDialog):
         layout.setSpacing(10)
         layout.addWidget(meta_heading)
         layout.addLayout(meta_form)
+        layout.addSpacing(6)
+        layout.addWidget(norm_heading)
+        layout.addLayout(norm_form)
         layout.addSpacing(6)
         layout.addWidget(vis_heading)
         layout.addLayout(vis_form)
@@ -299,30 +356,6 @@ class FitScrollArea(QScrollArea):
         return super().sizeHint()
 
 
-class FitTabWidget(QTabWidget):
-    """A tab widget sized to the *current* page rather than the tallest page.
-
-    Parked: currently unused (the UI shows only the Convert view). Kept for when
-    the Deep Research tab is restored alongside Convert.
-
-    The default hint is the max over all pages, which would stretch the short
-    tab's pane to the tall tab's height and leave an empty gap. Tracking the
-    current page keeps the pane hugging what's actually shown.
-    """
-
-    def __init__(self, parent=None):
-        super().__init__(parent)
-        self.currentChanged.connect(lambda _: self.updateGeometry())
-
-    def sizeHint(self):
-        page = self.currentWidget()
-        if page is not None:
-            tab_h = self.tabBar().sizeHint().height()
-            hint = page.sizeHint()
-            return QSize(hint.width(), hint.height() + tab_h)
-        return super().sizeHint()
-
-
 # --------------------------------------------------------------------------- #
 # Convert File tab
 # --------------------------------------------------------------------------- #
@@ -335,8 +368,35 @@ class ConvertTab(QWidget):
         input_browse.clicked.connect(self._pick_input)
         input_row = self._row(self.input_edit, input_browse)
 
-        self.voice_picker = VoicePicker(ec.DEFAULT_VOICE)
+        # Engine choices come from the backend registry; unavailable ones stay
+        # visible but disabled, with the reason in their tooltip.
+        self.engine_combo = QComboBox()
+        self._engine_choices = gv.engine_choices()
+        for choice in self._engine_choices:
+            self.engine_combo.addItem(choice.display, choice.name)
+            row = self.engine_combo.count() - 1
+            self.engine_combo.setItemData(row, choice.reason or choice.label, Qt.ToolTipRole)
+            if not choice.available:
+                model = self.engine_combo.model()
+                model.item(row).setEnabled(False)
+        start = self.engine_combo.findData(ec.DEFAULT_ENGINE)
+        first_available = next((c.name for c in self._engine_choices if c.available), None)
+        if start >= 0 and self._engine_choices[start].available:
+            self.engine_combo.setCurrentIndex(start)
+        elif first_available:
+            self.engine_combo.setCurrentIndex(self.engine_combo.findData(first_available))
+        self.engine_combo.currentIndexChanged.connect(self._on_engine_changed)
+
+        self.voice_picker = VoicePicker(ec.DEFAULT_VOICE, engine=self.current_engine())
         self.speed = SpeedControl(float(ec.DEFAULT_SPEED))
+
+        self.format_combo = QComboBox()
+        for fmt in FORMATS:
+            self.format_combo.addItem(FORMAT_BLURBS.get(fmt, fmt.upper()), fmt)
+        fmt_idx = self.format_combo.findData(ec.DEFAULT_FORMAT)
+        if fmt_idx >= 0:
+            self.format_combo.setCurrentIndex(fmt_idx)
+        self.format_combo.currentIndexChanged.connect(self._sync_output_suffix)
 
         self.output_edit = QLineEdit()
         output_browse = QPushButton("Browse…")
@@ -353,19 +413,25 @@ class ConvertTab(QWidget):
         form.addWidget(QLabel("Input file:"), r, 0, Qt.AlignLeft | Qt.AlignVCenter)
         form.addLayout(input_row, r, 1)
         r += 1
+        form.addWidget(QLabel("Engine:"), r, 0, Qt.AlignLeft | Qt.AlignVCenter)
+        form.addWidget(self.engine_combo, r, 1)
+        r += 1
         form.addWidget(QLabel("Voice:"), r, 0, Qt.AlignLeft | Qt.AlignVCenter)
         form.addWidget(self.voice_picker, r, 1)  # tall; label centers against it
         r += 1
         form.addWidget(QLabel("Speed:"), r, 0, Qt.AlignLeft | Qt.AlignVCenter)
         form.addWidget(self.speed, r, 1)
         r += 1
-        form.addWidget(QLabel("Output MP3:"), r, 0, Qt.AlignLeft | Qt.AlignVCenter)
+        form.addWidget(QLabel("Format:"), r, 0, Qt.AlignLeft | Qt.AlignVCenter)
+        form.addWidget(self.format_combo, r, 1)
+        r += 1
+        form.addWidget(QLabel("Output file:"), r, 0, Qt.AlignLeft | Qt.AlignVCenter)
         form.addLayout(output_row, r, 1)
 
         # Advanced settings live in a modal dialog opened by the status-bar gear.
         self.settings = SettingsDialog(self)
 
-        self.convert_btn = QPushButton("Convert to MP3")
+        self.convert_btn = QPushButton("Create audiobook")
         self.convert_btn.setObjectName("primary")  # accent-styled primary action
         self.convert_btn.setDefault(True)
 
@@ -400,23 +466,47 @@ class ConvertTab(QWidget):
         self.input_edit.setText(path)
         self._autofill_output(path)
 
+    def current_engine(self) -> str:
+        return self.engine_combo.currentData() or ec.DEFAULT_ENGINE
+
+    def current_format(self) -> str:
+        return self.format_combo.currentData() or ec.DEFAULT_FORMAT
+
+    def _on_engine_changed(self) -> None:
+        """Repopulate the voice list for the newly chosen engine."""
+        from echo.audio.engines import get_engine
+
+        engine_name = self.current_engine()
+        try:
+            default_voice = get_engine(engine_name).default_voice()
+        except Exception:
+            default_voice = None
+        self.voice_picker.set_engine(engine_name, default_voice)
+
+    def _sync_output_suffix(self) -> None:
+        """Keep the output path's extension in step with the chosen format."""
+        current = self.output_edit.text().strip()
+        if current:
+            self.output_edit.setText(str(Path(current).with_suffix(f".{self.current_format()}")))
+
     def _autofill_output(self, input_path: str) -> None:
         if self.output_edit.text().strip():
             return  # respect a path the user already chose
         src = Path(input_path)
         out_dir = Path(ec.OUTPUT_FOLDER) if ec.OUTPUT_FOLDER else src.parent
-        self.output_edit.setText(str(out_dir / f"{src.stem}.mp3"))
+        self.output_edit.setText(str(out_dir / f"{src.stem}.{self.current_format()}"))
 
     def _pick_output(self) -> None:
         start = self.output_edit.text() or (ec.OUTPUT_FOLDER or "")
-        path, _ = QFileDialog.getSaveFileName(self, "Save MP3 as", start, "MP3 audio (*.mp3)")
+        fmt = self.current_format()
+        path, _ = QFileDialog.getSaveFileName(
+            self, f"Save {fmt.upper()} as", start, f"{fmt.upper()} audio (*.{fmt})"
+        )
         if path:
-            if not path.lower().endswith(".mp3"):
-                path += ".mp3"
-            self.output_edit.setText(path)
+            self.output_edit.setText(str(Path(path).with_suffix(f".{fmt}")))
 
     def gather(self) -> dict:
-        """Validate and collect parameters for ``core.file_to_mp3``.
+        """Validate and collect parameters for ``core.file_to_audio``.
 
         Raises ``ValueError`` with a user-facing message on invalid input.
         Advanced options are read from the (modal) settings dialog.
@@ -429,7 +519,12 @@ class ConvertTab(QWidget):
 
         output_path = self.output_edit.text().strip()
         if not output_path:
-            raise ValueError("Please choose an output MP3 path.")
+            raise ValueError("Please choose where to save the audiobook.")
+
+        engine_name = self.current_engine()
+        choice = next((c for c in self._engine_choices if c.name == engine_name), None)
+        if choice is not None and not choice.available:
+            raise ValueError(f"The {choice.label} engine needs setup first:\n\n{choice.reason}")
 
         s = self.settings
         meta: dict = {}
@@ -453,117 +548,14 @@ class ConvertTab(QWidget):
             output_path=output_path,
             voice=self.voice_picker.current_voice(),
             speed=self.speed.value(),
+            engine=engine_name,
+            fmt=self.current_format(),
+            normalizer=s.normalizer.currentData(),
             meta=meta,
             save_text=s.save_text.isChecked(),
+            write_transcript=s.write_transcript.isChecked(),
             parser_configs=parser_configs,
             log_level=s.verbosity.currentData(),
-        )
-
-
-# --------------------------------------------------------------------------- #
-# Deep Research tab
-# --------------------------------------------------------------------------- #
-class DeepResearchTab(QWidget):
-    """Parked: not currently shown in the UI (Deep Research was temporarily
-    removed). Left intact — along with FitTabWidget and DeepResearchWorker — so
-    the tab can be re-added to MainWindow without rebuilding it."""
-
-    def __init__(self, parent=None):
-        super().__init__(parent)
-
-        note = QLabel(
-            "Generate audio from a Gemini Deep Research topic, or convert an "
-            "existing research .txt file.\n"
-            "Topic mode requires <b>google-generativeai</b> installed and "
-            "<b>GEMINI_API_KEY</b> set in your environment/.env."
-        )
-        note.setTextFormat(Qt.RichText)  # render the <b> emphasis, not literal tags
-        note.setWordWrap(True)
-
-        self.topic_radio = QRadioButton("Research a topic with Gemini")
-        self.text_radio = QRadioButton("Convert an existing research .txt file")
-        self.topic_radio.setChecked(True)
-        self.topic_radio.toggled.connect(self._sync_mode)
-
-        # Topic-mode fields
-        self.name_edit = QLineEdit()
-        self.name_edit.setPlaceholderText("Short name used for output files, e.g. quantum_computing")
-        self.topic_edit = QPlainTextEdit()
-        self.topic_edit.setPlaceholderText("Describe the topic to research…")
-        self.topic_edit.setMinimumHeight(90)
-
-        # Text-mode field
-        self.text_edit = QLineEdit()
-        text_browse = QPushButton("Browse…")
-        text_browse.clicked.connect(self._pick_text)
-        text_row = ConvertTab._row(self.text_edit, text_browse)
-
-        self.voice_picker = VoicePicker(ec.DEFAULT_VOICE)
-        self.speed = SpeedControl(1.5)  # matches the deep-research CLI default
-
-        form = QFormLayout()
-        form.setLabelAlignment(Qt.AlignLeft | Qt.AlignVCenter)
-        form.setVerticalSpacing(10)
-        form.addRow(self.topic_radio)
-        form.addRow("Name:", self.name_edit)
-        form.addRow("Topic:", self.topic_edit)
-        form.addRow(self.text_radio)
-        form.addRow("Research file:", text_row)
-        form.addRow("Voice:", self.voice_picker)
-        form.addRow("Speed:", self.speed)
-
-        self.run_btn = QPushButton("Generate audio")
-        self.run_btn.setObjectName("primary")  # accent-styled primary action
-
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(16, 16, 16, 16)
-        layout.setSpacing(12)
-        layout.addWidget(note)
-        layout.addLayout(form)
-        layout.addWidget(self.run_btn)
-        layout.addStretch(1)  # keep content top-aligned
-
-        self._sync_mode()
-
-    def _sync_mode(self) -> None:
-        topic_mode = self.topic_radio.isChecked()
-        self.name_edit.setEnabled(topic_mode)
-        self.topic_edit.setEnabled(topic_mode)
-        self.text_edit.setEnabled(not topic_mode)
-
-    def _pick_text(self) -> None:
-        path, _ = QFileDialog.getOpenFileName(self, "Select research text file", "", "Text files (*.txt)")
-        if path:
-            self.text_edit.setText(path)
-            if not self.name_edit.text().strip():
-                self.name_edit.setText(Path(path).stem)
-
-    def gather(self) -> dict:
-        if self.topic_radio.isChecked():
-            name = self.name_edit.text().strip()
-            topic = self.topic_edit.toPlainText().strip()
-            if not name:
-                raise ValueError("Please provide a short name for the research.")
-            if not topic:
-                raise ValueError("Please describe the topic to research.")
-            return dict(
-                mode="topic",
-                name=name,
-                topic=topic,
-                text_path="",
-                voice=self.voice_picker.current_voice(),
-                speed=self.speed.value(),
-            )
-        text_path = self.text_edit.text().strip()
-        if not text_path or not Path(text_path).exists():
-            raise ValueError("Please choose an existing research .txt file.")
-        return dict(
-            mode="text",
-            name=Path(text_path).stem,
-            topic="",
-            text_path=text_path,
-            voice=self.voice_picker.current_voice(),
-            speed=self.speed.value(),
         )
 
 
@@ -577,14 +569,11 @@ class MainWindow(QMainWindow):
         self.resize(780, 600)
         self.setMinimumSize(600, 460)
         self._worker = None  # keep a reference so the QThread isn't GC'd mid-run
-        self._last_output = None  # most recent generated MP3, for the play button
+        self._last_output = None  # most recent generated file, for the play button
 
         self.convert_tab = ConvertTab()
-        # Deep Research is temporarily removed from the UI; the Convert view is the
-        # whole window. DeepResearchTab / DeepResearchWorker (and FitTabWidget) are
-        # left in the codebase so the tab can be restored later.
-        # Wrap in a scroll area so expanding the advanced settings (or a small
-        # window) scrolls rather than compressing the fields.
+        # Wrap in a scroll area so a small window scrolls rather than compressing
+        # the fields.
         convert_area = self._scrollable(self.convert_tab)
 
         # --- status row: the status bar, plus separate icon buttons beside it ---
@@ -609,13 +598,13 @@ class MainWindow(QMainWindow):
         sb.addStretch(1)
         sb.addWidget(self.progress)
 
-        # Play button: reopen/play the most recently generated MP3.
+        # Play button: reopen/play the most recently generated audiobook.
         self.play_btn = QToolButton()
         self.play_btn.setObjectName("iconbtn")
         self.play_btn.setText("♪")
         self.play_btn.setFixedSize(40, 34)
         self.play_btn.setCursor(Qt.PointingHandCursor)
-        self.play_btn.setToolTip("Play the generated MP3")
+        self.play_btn.setToolTip("Play the generated audiobook")
         self.play_btn.setEnabled(False)  # enabled once a file has been produced
         self.play_btn.clicked.connect(self._play_last)
 
@@ -750,7 +739,8 @@ class MainWindow(QMainWindow):
         if not voice:
             QMessageBox.warning(self, "No voice", "Please select a voice to preview.")
             return
-        self._start(PreviewWorker(voice, speed.value()), f"Previewing {voice}…")
+        engine = self.convert_tab.current_engine()
+        self._start(PreviewWorker(voice, speed.value(), engine=engine), f"Previewing {voice}…")
 
 
 def main() -> int:
@@ -758,10 +748,15 @@ def main() -> int:
     app.setApplicationName("echo")
     apply_theme(app)
 
-    # Point pydub at a bundled/system ffmpeg (needed to merge long conversions).
+    # Locate ffmpeg up front (bundled with a frozen build, otherwise on PATH) so a
+    # missing install is reported before a conversion has run.
     from echo.audio.mp3_utils import configure_ffmpeg
 
-    configure_ffmpeg()
+    if configure_ffmpeg() is None:
+        logging.getLogger("echo").warning(
+            "ffmpeg was not found — audio cannot be assembled. Install it with "
+            "`brew install ffmpeg`."
+        )
 
     window = MainWindow()
     window.show()

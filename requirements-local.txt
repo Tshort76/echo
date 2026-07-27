@@ -1,0 +1,20 @@
+# On-device synthesis on Apple Silicon (optional).
+#
+#   --engine mlx
+#
+# Which model runs is set by MLX_TTS_MODEL. mlx-audio hosts twenty-odd of them,
+# and they differ in speed, quality and dependencies.
+#
+# Kokoro-82M is the fast, clean narration default — but it needs the `misaki`
+# phonemizer, whose [en] extra pulls in spaCy, and spaCy has no Python 3.14
+# wheels. So:
+#
+#   Python <= 3.13:  pip install -r requirements-local.txt 'misaki[en]'
+#                    MLX_TTS_MODEL=prince-canuma/Kokoro-82M   (the default)
+#
+#   Python 3.14:     pick a model that needs no phonemizer, e.g.
+#                    MLX_TTS_MODEL=mlx-community/chatterbox-turbo-4bit
+#
+# `--engine mlx` reports which of these applies if the model can't load.
+-r requirements.txt
+mlx-audio==0.4.6

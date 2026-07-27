@@ -1,7 +1,8 @@
 """Download a static ffmpeg binary into vendor/ffmpeg/<platform>/ for bundling.
 
-pydub shells out to ffmpeg to merge/encode MP3 chunks, and a GUI launched from
-Finder/Explorer has a minimal PATH — so we bundle a *static* ffmpeg with the app.
+echo shells out to ffmpeg to join the synthesized chunks and write M4B chapters,
+and a GUI launched from Finder/Explorer has a minimal PATH — so we bundle a
+*static* ffmpeg with the app.
 (A Homebrew/apt ffmpeg is dynamically linked and can't just be copied into a
 bundle, hence downloading a static build.)
 

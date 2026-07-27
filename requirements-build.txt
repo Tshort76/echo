@@ -2,7 +2,13 @@
 # Install into a dedicated build venv:  pip install -r requirements-build.txt
 #
 # Recommendation: build on Python 3.11–3.13 for the most battle-tested
-# PyInstaller + PySide6 + opencv hook support. Python 3.14 may work with a
-# recent PyInstaller but is less proven (see packaging/build_app.py's warning).
+# PyInstaller + PySide6 hook support. Python 3.14 may work with a recent
+# PyInstaller but is less proven, and Kokoro's misaki phonemizer can't install
+# there (see packaging/build_app.py's warning).
+#
+# Also install any optional engines you want bundled — echo_gui.spec includes
+# whichever are present and excludes the rest:
+#   pip install -r requirements-google.txt    # Gemini + Cloud TTS
+#   pip install -r requirements-local.txt     # mlx-audio (macOS)
 -r requirements-gui.txt
 pyinstaller>=6.11          # pin the exact version once a build succeeds on both OSes

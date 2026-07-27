@@ -1,83 +1,92 @@
-"""Load and filter the cached edge-tts voice list for the GUI dropdowns.
+"""Voice and engine lists for the GUI dropdowns.
 
-Reads ``resources/voices.csv`` (the same cache the backend maintains) so the UI
-does not need a network round-trip to populate its voice picker.
+Thin adapter over :mod:`echo.audio.engines`: the backend owns what a voice is and
+which engines can run, and this module only adds display strings and filtering.
+Listing is lazy and never touches the network — an engine that needs credentials
+reports itself unavailable instead of failing when a conversion starts.
 """
 
 from __future__ import annotations
 
-import csv
-from dataclasses import dataclass
-from pathlib import Path
+from echo.audio.engines import VoiceInfo, available_engines, get_engine
 
-from echo.paths import resource_path
+__all__ = [
+    "VoiceInfo",
+    "EngineChoice",
+    "engine_choices",
+    "load_voices",
+    "languages",
+    "filter_voices",
+    "display",
+]
 
-# The voice cache lives alongside the other bundled resources. resource_path()
-# resolves it correctly from any cwd and inside a frozen PyInstaller build.
-VOICES_CSV = resource_path("resources/voices.csv")
 
+class EngineChoice:
+    """One row in the engine dropdown."""
 
-@dataclass(frozen=True)
-class Voice:
-    """A single edge-tts voice parsed from the cache file."""
+    __slots__ = ("name", "label", "available", "reason", "audio_suffix")
 
-    short_name: str  # e.g. "en-GB-SoniaNeural" — the value edge-tts expects
-    language: str  # e.g. "en"
-    locale: str  # e.g. "GB"
-    gender: str  # "Male" | "Female"
-    tags: str  # comma-joined personality tags, e.g. "Friendly, Positive"
+    def __init__(self, name: str, label: str, available: bool, reason: str, audio_suffix: str):
+        self.name = name
+        self.label = label
+        self.available = available
+        self.reason = reason
+        self.audio_suffix = audio_suffix
 
     @property
     def display(self) -> str:
-        """Human-friendly label for the combo box."""
-        label = f"{self.short_name}  —  {self.gender}"
-        if self.tags:
-            label += f" ({self.tags})"
-        return label
+        return self.label if self.available else f"{self.label} — needs setup"
 
 
-def load_voices(csv_path: Path | None = None) -> list[Voice]:
-    """Parse the voice cache into ``Voice`` records, sorted by short name.
+def engine_choices() -> list[EngineChoice]:
+    """Every engine, ready ones first, each with why it isn't usable if it isn't."""
+    choices = [
+        EngineChoice(engine.name, engine.label, ok, reason, engine.audio_suffix)
+        for engine, ok, reason in available_engines()
+    ]
+    choices.sort(key=lambda c: (not c.available, c.label))
+    return choices
 
-    Returns an empty list (rather than raising) if the cache is missing, so the
-    UI can degrade gracefully to a free-text voice entry.
+
+def load_voices(engine_name: str | None = None) -> list[VoiceInfo]:
+    """Voices for one engine, sorted for display.
+
+    Returns an empty list rather than raising if the engine cannot enumerate
+    them, so the UI can fall back to free-text voice entry.
     """
-    path = Path(csv_path) if csv_path else VOICES_CSV
-    if not path.exists():
+    try:
+        voices = get_engine(engine_name).voices()
+    except Exception:
         return []
-
-    voices: list[Voice] = []
-    with open(path, "r", encoding="utf-8", newline="") as fp:
-        for row in csv.reader(fp):
-            if len(row) < 4:
-                continue
-            short_name, language, locale, gender = (c.strip() for c in row[:4])
-            # The tags column is a quoted, comma-separated list; csv already
-            # split it into the remaining fields, so re-join and tidy spacing.
-            tags = ", ".join(t.strip() for t in row[4:] if t.strip())
-            voices.append(Voice(short_name, language, locale, gender, tags))
-
-    voices.sort(key=lambda v: v.short_name.lower())
-    return voices
+    return sorted(voices, key=lambda v: (v.language, v.locale, v.name.lower()))
 
 
-def languages(voices: list[Voice]) -> list[str]:
-    """Unique language codes present in ``voices``, sorted alphabetically."""
+def languages(voices: list[VoiceInfo]) -> list[str]:
+    """Unique language codes present in ``voices``, sorted."""
     return sorted({v.language for v in voices if v.language})
 
 
 def filter_voices(
-    voices: list[Voice],
+    voices: list[VoiceInfo],
     language: str | None = None,
     gender: str | None = None,
-) -> list[Voice]:
-    """Return the subset of ``voices`` matching the given language and gender.
-
-    ``None`` (or empty string) for a criterion means "no filter".
-    """
+) -> list[VoiceInfo]:
+    """Subset of ``voices`` matching language and gender; empty criteria mean "any"."""
     result = voices
     if language:
         result = [v for v in result if v.language == language]
     if gender:
         result = [v for v in result if v.gender.lower() == gender.lower()]
     return result
+
+
+def display(voice: VoiceInfo) -> str:
+    """Label for the voice combo box."""
+    parts = [voice.name or voice.id]
+    if voice.locale:
+        parts.append(f"({voice.locale})")
+    if voice.gender:
+        parts.append(f"— {voice.gender}")
+    if voice.tags:
+        parts.append(f"· {voice.tags}")
+    return " ".join(parts)

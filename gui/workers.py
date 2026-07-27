@@ -1,8 +1,8 @@
 """Background worker threads for long-running backend operations.
 
-Everything in the ``echo`` pipeline is blocking (and TTS spins up its own asyncio
-loop), so it must run off the Qt main thread to keep the UI responsive. Each
-worker is a ``QThread`` that:
+Everything in the ``echo`` pipeline is blocking (and synthesis spins up its own
+asyncio loop), so it must run off the Qt main thread to keep the UI responsive.
+Each worker is a ``QThread`` that:
 
 * installs a temporary logging handler to forward backend log lines to the UI,
 * parses the backend's ``"Progress Report: NN%"`` log messages into a progress
@@ -14,24 +14,19 @@ worker is a ``QThread`` that:
 from __future__ import annotations
 
 import logging
-import os
 import re
-import subprocess
-import sys
+import tempfile
 import traceback
 from pathlib import Path
 
 from PySide6.QtCore import QThread, Signal
 
 import echo.core as core
-import echo.clean as cln
-import deep_research_cli as dr
 
-_REPO_ROOT = Path(__file__).resolve().parent.parent
 _PROGRESS_RE = re.compile(r"Progress Report:\s*(\d+)\s*%")
 
 # Loggers whose output we surface in the UI while a job runs.
-_CAPTURED_LOGGERS = ("echo", "deep_research_cli", "__main__")
+_CAPTURED_LOGGERS = ("echo", "__main__")
 
 
 class _SignalLogHandler(logging.Handler):
@@ -88,13 +83,13 @@ class _BaseWorker(QThread):
             self.message.emit(traceback.format_exc())
             self.failed.emit(str(exc) or exc.__class__.__name__)
         finally:
-            for lg, level in touched:
+            for lg, prior in touched:
                 lg.removeHandler(handler)
-                lg.setLevel(level)
+                lg.setLevel(prior)
 
 
 class ConversionWorker(_BaseWorker):
-    """Runs ``core.file_to_mp3`` for the Convert File tab."""
+    """Runs the full document-to-audiobook pipeline for the Convert view."""
 
     def __init__(
         self,
@@ -105,6 +100,10 @@ class ConversionWorker(_BaseWorker):
         meta: dict,
         save_text: bool,
         parser_configs: dict,
+        engine: str = None,
+        fmt: str = None,
+        normalizer: str = None,
+        write_transcript: bool = False,
         log_level: int = logging.INFO,
         parent=None,
     ):
@@ -112,70 +111,20 @@ class ConversionWorker(_BaseWorker):
         self._level = log_level
         self._args = dict(
             file_path=file_path,
-            mp3_path=output_path,
+            output_path=output_path,
             mp3_meta=meta,
             voice=voice,
             speed=speed,
+            engine=engine,
+            fmt=fmt,
+            normalizer=normalizer,
             write_text_file=save_text,
+            write_transcript=write_transcript,
             parser_configs=parser_configs,
         )
 
     def run(self) -> None:
-        self._run_captured(lambda: core.file_to_mp3(**self._args))
-
-
-class DeepResearchWorker(_BaseWorker):
-    """Runs the Gemini Deep Research → clean → audio pipeline.
-
-    ``mode`` is either ``"topic"`` (call Gemini for a topic) or ``"text"``
-    (convert an existing research .txt file).
-    """
-
-    def __init__(
-        self,
-        mode: str,
-        name: str,
-        topic: str,
-        text_path: str,
-        voice: str,
-        speed: float,
-        parent=None,
-    ):
-        super().__init__(parent)
-        self._mode = mode
-        self._name = name
-        self._topic = topic
-        self._text_path = text_path
-        self._voice = voice
-        self._speed = speed
-        self._out_dir = _REPO_ROOT / "resources" / "outputs" / "geminiDR"
-
-    def run(self) -> None:
-        self._run_captured(self._pipeline)
-
-    def _pipeline(self) -> str:
-        log = logging.getLogger("deep_research_cli")
-        self._out_dir.mkdir(parents=True, exist_ok=True)
-
-        if self._mode == "topic":
-            dr.initialize_gemini()
-            raw = dr.start_deep_research({"name": self._name, "topic": self._topic})
-            (self._out_dir / f"raw_{self._name}.txt").write_text(raw, encoding="utf-8")
-        else:
-            raw = Path(self._text_path).read_text(encoding="utf-8")
-
-        log.info("Formatting research output")
-        cleaned = cln.clean_gemini_contents(raw)
-        text_file = self._out_dir / f"{self._name}.txt"
-        text_file.write_text(cleaned, encoding="utf-8")
-
-        mp3_file = core.file_to_mp3(
-            str(text_file),
-            mp3_meta={"title": self._name, "author": "Gemini"},
-            voice=self._voice,
-            speed=self._speed,
-        )
-        return str(mp3_file)
+        self._run_captured(lambda: core.file_to_audio(**self._args))
 
 
 class PreviewWorker(_BaseWorker):
@@ -186,31 +135,29 @@ class PreviewWorker(_BaseWorker):
         "at the selected speed. Thank you for listening."
     )
 
-    def __init__(self, voice: str, speed: float, parent=None):
+    def __init__(self, voice: str, speed: float, engine: str = None, parent=None):
         super().__init__(parent)
         self._voice = voice
         self._speed = speed
+        self._engine = engine
 
     def run(self) -> None:
         self._run_captured(self._make_and_open)
 
     def _make_and_open(self) -> str:
-        import tempfile
+        import asyncio
 
-        import echo.audio.tts as tts
+        from echo.audio.engines import get_engine
 
-        tmp = Path(tempfile.gettempdir()) / f"echo_preview_{abs(hash(self._voice))}.mp3"
-        tts.text_to_mp3(self._SAMPLE, str(tmp), voice=self._voice, speed=self._speed)
+        engine = get_engine(self._engine)
+        engine.check_available()
+        # Keyed by voice so repeated previews of the same voice reuse the file.
+        tmp = Path(tempfile.gettempdir()) / f"echo_preview_{self._engine}_{abs(hash(self._voice))}{engine.audio_suffix}"
+        asyncio.run(engine.synthesize(self._SAMPLE, self._voice, self._speed, tmp))
         open_in_default_app(tmp)
         return str(tmp)
 
 
 def open_in_default_app(path: Path) -> None:
     """Open ``path`` with the platform's default application, cross-platform."""
-    path = str(path)
-    if sys.platform.startswith("darwin"):
-        subprocess.run(["open", path], check=False)
-    elif os.name == "nt":
-        os.startfile(path)  # type: ignore[attr-defined]  # Windows only
-    else:
-        subprocess.run(["xdg-open", path], check=False)
+    core.open_in_default_app(path)

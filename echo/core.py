@@ -1,111 +1,264 @@
-import os
+"""echo's public API.
+
+    extract  ->  Document        what the file says
+    normalize->  Script          what the narrator says, in chapters
+    synthesize-> Segment[]       one audio file per utterance
+    assemble ->  .m4b / .mp3     one file, with chapter marks
+    tag      ->  metadata + cover art
+"""
+
+from __future__ import annotations
+
+import asyncio
 import logging
+import os
+import subprocess
+import sys
+import time
 from pathlib import Path
 
-import echo.extractors.pdfs as pdfz
-import echo.extractors.text as txt
-import echo.extractors.misc as eem
+import echo.audio.assemble as asm
 import echo.audio.mp3_utils as mp3z
 import echo.audio.tts as tts
-import echo.clean as cln
+import echo.constants as ec
+import echo.normalize as norm
+from echo.audio.engines import get_engine
+from echo.document import Document, Script
+from echo.extractors import extract
 
 log = logging.getLogger(__name__)
 
 
-def print_voices() -> None:
-    print(tts.available_voices())
+# ─────────────────────────────────────────────────────────────────────────────
+# Introspection helpers
+# ─────────────────────────────────────────────────────────────────────────────
 
 
-def play_mp3_clip(voice: str, speed: float = 1):
-    mp3_path = "resources/outputs/sample.mp3"
-    if os.path.exists(mp3_path):
-        os.remove(mp3_path)
-    mp3_path = file_to_mp3("resources/demo_data/sample.txt", mp3_path, voice=voice, speed=speed)
-    os.startfile(str(mp3_path.absolute()))
+def print_voices(engine: str = None) -> None:
+    for voice in get_engine(engine).voices():
+        print(f"{voice.id}\t{voice.label}\t{voice.tags}")
 
 
-def convert_to_text(input_path: Path, configs: dict = {}) -> str:
-    """Converts files from various formats (pdf, )
+def open_in_default_app(path: Path) -> None:
+    """Open a file with the OS default application.
+
+    ``os.startfile`` exists only on Windows, so the previous version of this
+    raised AttributeError on macOS and Linux.
+    """
+    path = str(Path(path).resolve())
+    if sys.platform == "darwin":
+        subprocess.run(["open", path], check=False)
+    elif os.name == "nt":
+        os.startfile(path)  # noqa: S606 — Windows-only branch
+    else:
+        subprocess.run(["xdg-open", path], check=False)
+
+
+def play_mp3_clip(voice: str, speed: float = 1, engine: str = None, output_dir: Path = None):
+    """Synthesize a short sample with a voice and open it, to audition it."""
+    output_dir = Path(output_dir) if output_dir else Path(ec.OUTPUT_FOLDER or ".")
+    output_dir.mkdir(parents=True, exist_ok=True)
+    resolved = get_engine(engine)
+    sample_path = output_dir / f"sample{resolved.audio_suffix}"
+    sample_path.unlink(missing_ok=True)
+
+    text = (
+        "This is a short sample of this voice. If you like how it sounds, "
+        "it will read your whole book this way."
+    )
+    asyncio.run(resolved.synthesize(text, voice, speed, sample_path))
+    open_in_default_app(sample_path)
+    return sample_path
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Pipeline stages
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+def extract_document(input_path: str | Path, configs: dict = None) -> Document:
+    """Parse a file into a structured Document and apply the rules normalizer."""
+    doc = extract(input_path, **(configs or {}))
+    return norm.apply_rules(doc)
+
+
+def convert_to_text(input_path: str | Path, configs: dict = None) -> str:
+    """Extract a file's narratable text as a plain string.
+
+    Retained for callers that only want text — the pipeline itself now passes a
+    :class:`~echo.document.Document` so it can carry chapters and skip lists.
+    """
+    return extract_document(input_path, configs).as_text()
+
+
+def build_script(
+    doc: Document,
+    engine_name: str = None,
+    normalizer: str = None,
+    chunk_size: int = None,
+) -> Script:
+    """Turn a Document into a chapter-aware Script sized for the engine."""
+    engine = get_engine(engine_name)
+    limit = min(chunk_size or ec.CHUNK_SIZE, engine.max_chars)
+    return norm.build_script(
+        doc,
+        chunk_size=limit,
+        normalizer=norm.get_normalizer(normalizer),
+    )
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# The whole pipeline
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+def file_to_audio(
+    file_path: str | Path,
+    output_path: str | Path = None,
+    mp3_meta: dict = None,
+    voice: str = None,
+    speed: float = None,
+    engine: str = None,
+    fmt: str = None,
+    normalizer: str = None,
+    write_text_file: bool = False,
+    write_transcript: bool = None,
+    parser_configs: dict = None,
+    resume: bool = True,
+) -> Path:
+    """Convert a text-bearing file into an audiobook.
 
     Args:
-        input_path (str): path to the file that is to be converted
-        configs (dict, optional): format specific parsing configs (e.g. first_page)
+        file_path: source ``.pdf``, ``.epub``, ``.txt`` or ``.md``.
+        output_path: destination; the suffix follows ``fmt`` when given.
+        mp3_meta: ``title`` / ``author`` / ``image_path`` for tagging.
+        voice: engine-specific voice id; the engine's default when omitted.
+        speed: playback multiplier, applied by the engine or by ffmpeg.
+        engine: ``edge`` (default), ``gemini``, ``google-cloud`` or ``mlx``.
+        fmt: ``m4b`` (default, chaptered) or ``mp3``.
+        normalizer: ``off`` (default), ``local`` or ``gemini``.
+        write_text_file: also write the narrated text beside the audio.
+        write_transcript: also write an ``.srt`` when the engine reports timings.
+        parser_configs: extractor options (``first_page``, ``last_page``,
+            ``force_ocr``, ``use_docling``).
+        resume: reuse chunks left behind by an interrupted run.
 
     Returns:
-        str: text contents of the input file
+        Path to the finished audio file.
     """
+    started = time.perf_counter()
+    file_path = Path(file_path)
+    mp3_meta = dict(mp3_meta or {})
+    fmt = (fmt or ec.DEFAULT_FORMAT).lower().lstrip(".")
+    speed = ec.DEFAULT_SPEED if speed is None else speed
+    write_transcript = ec.WRITE_TRANSCRIPT if write_transcript is None else write_transcript
 
-    match input_path.suffix:
-        case ".txt":
-            with open(input_path, "r", encoding="utf-8") as fp:
-                text = fp.read()
+    resolved_engine = get_engine(engine)
+    resolved_engine.check_available()
+    voice = voice or resolved_engine.default_voice()
 
-            if txt.is_gutenberg_text(text):
-                text = txt.strip_gutenberg_bloat(text)
-                chunks = txt.to_chunks(text, 20000)
-                text = "\n".join(map(cln.format_for_audio, chunks))
-                return cln.remove_repeat_lines(text)
-            else:
-                return text
-        case ".pdf":
-            log.info(f"Converting PDF {input_path} to text")
-            p0 = configs.get("first_page", 0)
-            p1 = configs.get("last_page", 9999)
-            pages = pdfz.extract_page_contents(input_path, first_page=p0, last_page=p1, content_types=["text"])
-            return cln.simplify_pdf_for_audio(pages)
-        case ".epub":
-            log.info(f"Converting EPUB {input_path} to text")
-            text = eem.extract_epub_text(input_path)
-            if txt.is_gutenberg_text(text):
-                text = txt.strip_gutenberg_bloat(text)
-                chunks = txt.to_chunks(text, 20000)
-                text = "\n".join(map(cln.format_for_audio, chunks))
-            return cln.remove_repeat_lines(text)
-        case ".md":
-            log.info(f"Converting markdown {input_path} to text")
-            with open(input_path, "r", encoding="utf-8") as fp:
-                text = fp.read()
-            return cln.clean_markdown_contents(text)
-        case other_suffix:
-            raise NotImplementedError(f"Echo does not support {other_suffix} files!")
+    if output_path is None:
+        base = Path(ec.OUTPUT_FOLDER) / file_path.name if ec.OUTPUT_FOLDER else file_path
+        output_path = base.with_suffix(f".{fmt}")
+    else:
+        output_path = Path(output_path).with_suffix(f".{fmt}")
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+
+    # 1. Extract + rules normalization
+    doc = extract_document(file_path, parser_configs)
+
+    # 2. Script: chapters and engine-sized utterances
+    script = build_script(doc, engine_name=engine, normalizer=normalizer)
+
+    if write_text_file:
+        text_path = output_path.with_suffix(".txt")
+        text_path.write_text(script.as_text(), encoding="utf-8")
+        log.info(f"Wrote narrated text to {text_path}")
+
+    # 3. Synthesis
+    chunks_dir = tts.chunks_dir_for(output_path)
+    segments = asyncio.run(
+        tts.synthesize_script(
+            script,
+            engine=resolved_engine,
+            voice=voice,
+            speed=speed,
+            chunks_dir=chunks_dir,
+            resume=resume,
+        )
+    )
+    if len(segments) != len(script.utterances()):
+        raise asm.AssemblyError(
+            f"Expected {len(script.utterances())} audio chunk(s) but got {len(segments)}; "
+            f"refusing to build a file that is missing content. Chunks are in {chunks_dir}."
+        )
+
+    # 4. Chapter marks from the per-chapter durations
+    durations_by_chapter: list[list[int]] = [[] for _ in script.chapters]
+    for i, segment in enumerate(segments):
+        durations_by_chapter[script.chapter_of(i)].append(segment.duration_ms)
+    marks = asm.chapter_marks([c.title for c in script.chapters], durations_by_chapter)
+
+    # 5. Assemble
+    title = mp3_meta.get("title") or script.title
+    author = mp3_meta.get("author") or script.author
+    final_path = asm.assemble(
+        [s.path for s in segments],
+        output_path,
+        fmt=fmt,
+        chapters=marks,
+        title=title,
+        author=author,
+        speed=None if resolved_engine.supports_speed else speed,
+    )
+
+    # 6. Transcript, while the segment timings are still around
+    if write_transcript:
+        if any(s.timings for s in segments):
+            asm.write_srt(final_path, [(s.duration_ms, s.timings) for s in segments])
+        else:
+            log.info(f"{resolved_engine.label} does not report word timings; no transcript written")
+
+    # 7. Tags and cover art
+    mp3z.add_meta_fields(
+        final_path,
+        image_path=mp3_meta.get("image_path"),
+        title=title,
+        author=author,
+    )
+
+    asm.cleanup(chunks_dir)
+    log.info(
+        f"Done: {final_path} ({len(script.chapters)} chapter(s)) in "
+        f"{(time.perf_counter() - started) / 60:.2f} minutes"
+    )
+    return final_path
 
 
 def file_to_mp3(
-    file_path: str,
-    mp3_path: str = None,
-    mp3_meta: dict = {},
+    file_path: str | Path,
+    mp3_path: str | Path = None,
+    mp3_meta: dict = None,
     voice: str = None,
     speed: float = None,
     write_text_file: bool = False,
-    parser_configs: dict = {},
+    parser_configs: dict = None,
+    **kwargs,
 ) -> Path:
-    """Generate an audio file from a text file
+    """Backwards-compatible wrapper: same arguments as before, MP3 output."""
+    return file_to_audio(
+        file_path,
+        output_path=mp3_path,
+        mp3_meta=mp3_meta,
+        voice=voice,
+        speed=speed,
+        fmt=kwargs.pop("fmt", "mp3"),
+        write_text_file=write_text_file,
+        parser_configs=parser_configs,
+        **kwargs,
+    )
 
-    Args:
-        file_path (str): path to text/pdf/epub file
-        mp3_path (str, optional): path for the resulting mp3 file
-        mp3_meta (dict, optional): meta data to attach to the mp3
-        voice (str, optional): Voice for the narrator
-        speed (float, optional): playback speed multiplier
-        write_text_file (bool, optional): write intermediate text to a txt file. Defaults to False
-        parser_configs (dict, optional): configurations for parsing
 
-    Returns:
-        Path: File path to the resulting audio file
-    """
-    file_path = Path(file_path)
-    if mp3_path is None:
-        _mp3_path = file_path.with_suffix(".mp3")
-    else:
-        _mp3_path = Path(mp3_path)
-
-    _text = convert_to_text(file_path, parser_configs)
-    if write_text_file:
-        with open(_mp3_path.with_suffix(".txt"), "w", encoding="utf-8") as fp:
-            fp.write(_text)
-    tts.text_to_mp3(_text, _mp3_path, voice=voice, speed=speed)
-
-    if mp3_meta:
-        mp3z.add_meta_fields(_mp3_path, **mp3_meta)
-
-    return _mp3_path
+def text_to_mp3(text: str, mp3_path: str | Path, voice: str = None, speed: float = None, engine: str = None):
+    """Convert a string directly to audio."""
+    return tts.text_to_mp3(text, str(mp3_path), voice=voice, speed=speed, engine=engine)

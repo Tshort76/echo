@@ -1,11 +1,21 @@
-python-dotenv  # environment variables
-edge-tts  # mp3 generation
-mutagen   # mp3 editting
-pydub     # mp3 merging
-audioop-lts  # mp3 merging
-pymupdf   # pdf parsing
-EbookLib   # epub parsing
-beautifulsoup4  # epub and html parsing
-pytesseract  # ocr for pdfs
-pdf2image  # ocr for pdfs
-opencv-python-headless  # ocr for pdfs
+# Core dependencies for the CLI and the echo library.
+# Versions are pinned because this project is frozen into a shipped app — the
+# binary you build next month should be the one you tested.
+#
+# Optional extras live in sibling files:
+#   requirements-google.txt   Gemini TTS + Google Cloud TTS engines
+#   requirements-local.txt    on-device synthesis via mlx-audio (Apple Silicon)
+#   requirements-gui.txt      the desktop UI
+#   requirements-build.txt    packaging with PyInstaller
+
+python-dotenv==1.2.2        # .env configuration
+edge-tts==7.2.8             # default TTS engine (Microsoft Edge voices)
+mutagen==1.48.1             # ID3/MP4 tags, cover art, duration probing
+pymupdf==1.28.0             # PDF parsing and built-in Tesseract OCR
+pymupdf4llm==1.28.0         # structured markdown from PDFs
+EbookLib==0.20              # EPUB parsing
+beautifulsoup4==4.15.0      # EPUB/HTML text extraction
+
+# Audio is joined by ffmpeg (see echo/audio/assemble.py), not a Python library.
+# Install it with `brew install ffmpeg`, or vendor one for a packaged build with
+# `python packaging/fetch_ffmpeg.py`.

@@ -36,17 +36,41 @@ else:
           "the app will rely on a system ffmpeg on PATH. "
           "Run `python packaging/fetch_ffmpeg.py` to bundle one.")
 
-# Add here only if the build's warn-echo_gui.txt reports a genuine missing import.
-hiddenimports = []
+# --- optional speech engines ---
+# Engines are imported lazily by echo.audio.engines, so PyInstaller cannot see
+# them by static analysis. Bundle whichever are installed in the build
+# environment and exclude the rest, so the app ships exactly the engines you
+# asked for instead of silently losing one (or bloating with all of them).
+import importlib.util  # noqa: E402
 
-# Trim size / silence warnings for things the app never uses.
+
+def _installed(module: str) -> bool:
+    try:
+        return importlib.util.find_spec(module) is not None
+    except (ImportError, ValueError):
+        return False
+
+
+hiddenimports = []
 excludes = [
-    "google", "google.generativeai",   # parked Deep Research dependency (not installed)
     "tkinter",
     "PySide6.QtWebEngineCore", "PySide6.QtWebEngineWidgets",
     "PySide6.QtQml", "PySide6.QtQuick", "PySide6.Qt3DCore",
     "PySide6.QtCharts", "PySide6.QtMultimedia", "PySide6.QtNetwork",
 ]
+
+_OPTIONAL_ENGINES = {
+    "google.genai": ["google.genai", "echo.audio.engines.google"],
+    "google.cloud.texttospeech": ["google.cloud.texttospeech", "echo.audio.engines.google"],
+    "mlx_audio": ["mlx_audio", "mlx_audio.tts.utils", "echo.audio.engines.mlx"],
+}
+for _probe, _imports in _OPTIONAL_ENGINES.items():
+    if _installed(_probe):
+        hiddenimports.extend(i for i in _imports if i not in hiddenimports)
+        print(f"[echo_gui.spec] bundling optional engine: {_probe}")
+    else:
+        excludes.append(_probe)
+        print(f"[echo_gui.spec] not installed, excluding: {_probe}")
 
 # --- icon (optional; add art under packaging/icons/ later) ---
 _ico = HERE / "packaging" / "icons" / ("echo.ico" if IS_WIN else "echo.icns")

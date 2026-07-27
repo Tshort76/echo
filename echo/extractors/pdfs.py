@@ -1,23 +1,35 @@
+"""PDF extraction.
+
+Two changes from the original: structure comes from ``pymupdf4llm`` (which emits
+markdown with real headings and tables) instead of being inferred from line
+lengths, and OCR runs through PyMuPDF's own Tesseract integration instead of
+``pdf2image`` + Poppler + OpenCV. That removes three dependencies and a
+``POPPLER_PATH`` environment variable from the install story.
+"""
+
 import logging
-import os
 import re
 from pathlib import Path
-
-import cv2
-import numpy as np
-import pytesseract
-from dotenv import load_dotenv
-from pdf2image import convert_from_path
-import pymupdf as pp
-
 from typing import Optional
 
-load_dotenv()
+import pymupdf as pp
+import pymupdf4llm
+
+from echo.document import Block, Document
+from echo.extractors.markdown import blocks_from_markdown
+from echo.extractors.text import blocks_from_plain_text
+
 log = logging.getLogger(__name__)
 
 UNPRINTABLES = re.compile(r"[^\x20-\x7E\n]")
-EXTRA_SPACE = re.compile(r"\s{2,}")  # TODO pull into constants
 MAX_PAGE = 999999
+
+_OCR_HELP = (
+    "This PDF has pages with no extractable text, so OCR is required — but "
+    "Tesseract is not available to PyMuPDF. Install Tesseract (on macOS: "
+    "`brew install tesseract`) and make sure TESSDATA_PREFIX points at its "
+    "tessdata directory, or use a text-based PDF."
+)
 
 
 def name_for_file(pdf_path: str, ext: str = "mp3") -> str:
@@ -25,47 +37,9 @@ def name_for_file(pdf_path: str, ext: str = "mp3") -> str:
     return p.name.replace(p.suffix, "." + ext)
 
 
-def _greyscale_image(image: np.ndarray) -> np.ndarray:
-    gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-    gray = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY | cv2.THRESH_OTSU)[1]
-    return gray
-
-
-_OCR_HELP = (
-    "This PDF page has no extractable text, so OCR is required — but the optional "
-    "OCR tools are not available. Install Tesseract and Poppler (see the README) "
-    "or use a text-based PDF."
-)
-
-
-def run_ocr_on_page(pdf_path: str, page_num: int) -> str:
-    # Convert PDF to images
-    poppler_path = os.environ.get("POPPLER_PATH")
-    if not poppler_path:
-        log.warning(f"Could not find poppler lib.  Did you specify the path in your env?")
-
-    try:
-        images = convert_from_path(pdf_path, first_page=page_num, last_page=page_num, poppler_path=poppler_path)
-    except Exception as ex:  # pdf2image raises when Poppler isn't installed/on PATH
-        raise RuntimeError(_OCR_HELP) from ex
-
-    # Extract text from each page
-    page_texts = []
-    for image in images:
-        x = np.array(image)
-        x = _greyscale_image(x)
-        try:
-            page_texts.append(pytesseract.image_to_string(x))
-        except EnvironmentError as ex:  # TesseractNotFoundError subclasses this
-            raise RuntimeError(_OCR_HELP) from ex
-
-    return " ".join(page_texts)
-
-
-def _clean_up_text(text: str) -> Optional[str]:
+def _clean_up_text(text: Optional[str]) -> Optional[str]:
     if text is None:
         return None
-    # Remove non-printable characters
     text = text.replace("—", " ").replace("–", " ")
     text = text.replace("\xad\n", "")
     text = text.replace("-\n", "")  # fails for three-year across lines ...
@@ -74,107 +48,138 @@ def _clean_up_text(text: str) -> Optional[str]:
     return text
 
 
-def _contents_by_type(page: pp.Page, ann: pp.Annot) -> dict:
-    # https://pymupdf.readthedocs.io/en/latest/vars.html#annotationtypes
-    _type = ann.type  # tuple of form (id, desc1, desc2)
-    content = {}
+def ocr_page(page: pp.Page, dpi: int = 200) -> str:
+    """OCR a single page using PyMuPDF's built-in Tesseract bridge."""
+    try:
+        textpage = page.get_textpage_ocr(dpi=dpi, full=True)
+        return page.get_text("text", textpage=textpage) or ""
+    except Exception as ex:  # RuntimeError when the tesseract library is missing
+        raise RuntimeError(_OCR_HELP) from ex
 
-    match _type[0]:
-        case 8 | 9:  # HIGHLIGHT or UNDERLINE
-            content = _get_highlighted_content(page, ann)
-        case _:
-            content = {"note": ann.info.get("content")}
 
-    return {"type": _type[-1], **content}
+def _page_range(document: pp.Document, first_page: int | None, last_page: int | None) -> list[int]:
+    """Resolve a 1-indexed inclusive page range to 0-indexed page numbers."""
+    first = max(1, first_page or 1)
+    last = min(len(document), last_page or MAX_PAGE)
+    return list(range(first - 1, last))
+
+
+def extract_pdf(
+    pdf_path: str | Path,
+    first_page: int | None = None,
+    last_page: int | None = None,
+    force_ocr: bool = False,
+) -> Document:
+    """Extract a PDF into a structured :class:`Document`."""
+    pdf_path = Path(pdf_path)
+    ocr_pages: list[int] = []
+
+    with pp.open(pdf_path) as document:
+        pages = _page_range(document, first_page, last_page)
+        if not pages:
+            raise ValueError(f"{pdf_path} has no pages in the requested range")
+        log.info(f"Extracting {len(pages)} page(s) of content from {pdf_path}")
+
+        blocks: list[Block] = []
+        chunks: list[dict] = []
+        if not force_ocr:
+            chunks = pymupdf4llm.to_markdown(
+                document,
+                pages=pages,
+                page_chunks=True,
+                ignore_images=True,
+                ignore_graphics=True,
+                show_progress=False,
+            )
+
+        ocr_error: str | None = None
+        for offset, page_no in enumerate(pages):
+            md = ""
+            if chunks:
+                md = (chunks[offset].get("text") or "") if offset < len(chunks) else ""
+
+            if md.strip():
+                blocks.extend(blocks_from_markdown(md, page=page_no + 1))
+                continue
+
+            # No text layer on this page: fall back to OCR. A missing Tesseract
+            # is reported once and does not abort the document — a PDF with a few
+            # scanned plates should still produce audio for its text pages.
+            if ocr_error:
+                continue
+            try:
+                raw = ocr_page(document[page_no])
+            except RuntimeError as ex:
+                ocr_error = str(ex)
+                log.warning(ocr_error)
+                continue
+
+            cleaned = _clean_up_text(raw) or ""
+            if cleaned.strip():
+                ocr_pages.append(page_no + 1)
+                for block in blocks_from_plain_text(cleaned):
+                    block.page = page_no + 1
+                    blocks.append(block)
+            else:
+                log.warning(f"Page {page_no + 1} of {pdf_path} produced no text, even with OCR")
+
+        meta = document.metadata or {}
+
+    if ocr_pages:
+        log.info(f"Used OCR for {len(ocr_pages)} page(s): {ocr_pages[:20]}")
+
+    return Document(
+        blocks=blocks,
+        title=(meta.get("title") or "").strip() or None,
+        author=(meta.get("author") or "").strip() or None,
+        source_path=pdf_path,
+        provenance={
+            "backend": "pymupdf4llm" if not force_ocr else "ocr",
+            "pages": len(pages),
+            "ocr_pages": ocr_pages,
+            "ocr_error": ocr_error,
+        },
+    )
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Annotation extraction — unrelated to the audio pipeline, but a useful feature
+# of this module for pulling highlights out of a marked-up PDF.
+# ─────────────────────────────────────────────────────────────────────────────
 
 
 def _get_highlighted_content(page: pp.Page, ann: pp.Annot) -> dict:
     _text = []
-
     # annotation.vertices contains vertices of a polygon.  For highlights, the shapes are
     # rectangular, with one rectangle corresponding to one line of highlights.  Vertices
     # does not assume a rectangle, so we are given 4 vertices per rectangle but only need
     # 2 (adjacent corners).
-
-    # Process the quad points in sets of four (two pairs for each rectangle)
     for i in range(0, len(ann.vertices), 4):
         rect = pp.Rect(ann.vertices[i], ann.vertices[i + 3])
         _text.append(page.get_text("text", clip=rect).strip())
     return {"text": " ".join(_text), "color": ann.colors, "note": ann.info.get("content")}
 
 
-def extract_page_contents(
-    pdf_path: str,
-    first_page: int = None,  # 1 indexed
-    last_page: int = None,
-    parse_text_as: str = "text",
-    force_OCR: bool = False,
-    content_types: list[str] = None,
+def _contents_by_type(page: pp.Page, ann: pp.Annot) -> dict:
+    # https://pymupdf.readthedocs.io/en/latest/vars.html#annotationtypes
+    _type = ann.type  # tuple of form (id, desc1, desc2)
+    match _type[0]:
+        case 8 | 9:  # HIGHLIGHT or UNDERLINE
+            content = _get_highlighted_content(page, ann)
+        case _:
+            content = {"note": ann.info.get("content")}
+    return {"type": _type[-1], **content}
+
+
+def extract_annotations(
+    pdf_path: str | Path,
+    first_page: int | None = None,
+    last_page: int | None = None,
 ) -> list[dict]:
-    """Extracts the contents of each page from a pdf
-
-    Args:
-        pdf_path (str): Path to the target pdf
-        parse_text_as (str, optional): 'text', 'dict', 'blocks', 'json'. Defaults to "text".
-    Returns:
-        dict: keys include text, page_number, and annotations
-    """
-    _first = first_page or 1
-    _last = last_page or MAX_PAGE
-    log.info(f"Extracting up to {1+(_last - _first)} pages of content from {pdf_path}")
+    """Collect highlights, underlines and notes from a PDF."""
     with pp.open(pdf_path) as document:
-        pages = []
-        for page_number, page in enumerate(document, start=1):
-            if page_number < _first:
-                continue
-            if page_number > _last:
-                return pages
-
-            _text = None
-            if content_types is None or "text" in content_types:
-                try:
-                    if not force_OCR:
-                        _text = page.get_text(parse_text_as)
-                    if not _text:
-                        _text = run_ocr_on_page(pdf_path, page_number)
-                except Exception as ex:
-                    log.error(f"Exception caught processing page {page_number}.\n{ex}")
-
-            _annotations = None
-            if content_types is None or "annotations" in content_types:
-                _annotations = [
-                    {
-                        **_contents_by_type(page, a),
-                        # "bounding_box": a.rect,
-                        "page": page_number,
-                    }
-                    for a in page.annots()
-                ]
-
-            page = {
-                "text": _clean_up_text(_text),
-                "page": page_number,
-                "annotations": _annotations,
-            }
-            _out_of = "" if last_page == MAX_PAGE else f" of {_last if _last < 999 else '--'}"
-            log.debug(f"Parsed page {page_number}{_out_of} from {pdf_path}")
-            pages.append(page)
-
-    return pages
-
-
-def convert_to_text(
-    pdf_path: str,
-    output_path: str,
-    first_page: int = None,
-    last_page: int = None,
-) -> None:
-    "Extract text from PDF, clean and correct it, then write to a file."
-
-    pages = extract_page_contents(pdf_path, first_page=first_page, last_page=last_page)
-
-    # Write to output file
-    with open(output_path, "w", encoding="utf-8") as file:
-        file.write("\n".join([p["text"] for p in pages]))
-
-    log.info(f"Processed {pdf_path}, text saved to {output_path}")
+        out = []
+        for page_no in _page_range(document, first_page, last_page):
+            page = document[page_no]
+            out.extend({**_contents_by_type(page, a), "page": page_no + 1} for a in page.annots())
+    return out

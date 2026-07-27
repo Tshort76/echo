@@ -203,12 +203,14 @@ and it becomes the audio filename and the metadata title.
 Deep Research is a **real agent, not a prompt**. It plans, runs many web searches,
 reads pages and writes a cited report, so:
 
-- **A run takes 2–15 minutes.** echo reports progress as it goes ("Researching… 24
-  searches so far") and gives up after 30 minutes, cancelling the job so it isn't
-  left billing.
-- **It needs a paid-tier Gemini API key.** A free-tier key returns a
-  `budget_exceeded` status, which echo reports in those words rather than as a
-  generic failure.
+- **A run takes several minutes.** A measured example: a standard-agent run on a
+  focused historical topic took **8.9 minutes** and produced about 1,800 narrated
+  words — 14.5 minutes of audio across 4 chapters. echo reports elapsed time while it
+  waits, and gives up after 30 minutes, cancelling the job rather than leaving it
+  running.
+- **A free-tier API key works** — verified. Quotas still apply: if you exhaust the
+  allowance you get a `budget_exceeded` status, which echo reports in those words
+  rather than as a generic failure.
 - `--agent standard` (default), `max` (many more searches, slower) or `pro`.
 
 With `--save`, two files are kept in `resources/research/` (gitignored):
@@ -223,6 +225,21 @@ The citations are deliberately *not* narrated; they live in the notes file. With
 
 In the desktop app this is the **Deep Research…** entry on the source button, with
 live progress and a stop button.
+
+## Researching without an API key
+
+If you'd rather not use a Gemini key — or you've exhausted its quota — the repo ships
+a Claude Code command that does the research and writes the same kind of file:
+
+```
+/research the invention of the marine chronometer
+```
+
+It searches the web, writes `resources/research/<name>.md` in narration-ready form
+plus a `.notes.md` of sources, and tells you the command to convert it. Because echo
+narrates any `.md` file, nothing in the backend needs to know the report came from
+here rather than from Gemini — the file *is* the interface. See
+`.claude/commands/research.md`.
 
 > **A note on the API, since it is easy to get wrong.** Deep Research is reached
 > through `client.interactions.create(agent=…, background=True)` and polled — not

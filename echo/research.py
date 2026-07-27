@@ -5,10 +5,14 @@ reads pages and writes a cited report, which takes minutes rather than seconds �
 it is not reachable through ``generate_content``. It is invoked through the
 **Interactions API**::
 
-    client.interactions.create(body={"agent": ..., "input": ..., "background": True})
+    client.interactions.create(agent=..., input=..., background=True)
     client.interactions.get(interaction_id)     # poll until terminal
 
-Two details are easy to get wrong, and both fail at runtime:
+Three details are easy to get wrong, and all three fail at runtime:
+
+* The request fields are **direct keyword arguments**. ``create()`` is declared
+  ``**body`` and validates the names against a whitelist, so ``create(body={...})``
+  is rejected as an unexpected field called "body".
 
 * Deep Research variants are **agents**, not models. The SDK has separate
   ``CreateAgentInteraction`` (``agent=``) and ``CreateModelInteraction`` (``model=``)
@@ -46,6 +50,10 @@ DEFAULT_AGENT = "standard"
 
 #: Statuses that mean "still working".
 _PENDING = {"queued", "in_progress"}
+#: Say something at least this often while waiting. The API exposes no search
+#: progress mid-run, so elapsed time is the only signal we reliably have, and a
+#: multi-minute silence reads as a hung process.
+_PROGRESS_EVERY_S = 45.0
 #: Everything else is terminal, with per-status handling in :meth:`DeepResearcher.run`.
 _SUCCESS = "completed"
 
@@ -165,8 +173,7 @@ class DeepResearcher:
         if not self.api_key:
             raise ResearchUnavailable(
                 "Deep Research needs a Gemini API key. Set GEMINI_API_KEY in your "
-                ".env (create one at https://aistudio.google.com/apikey). Note that "
-                "the Deep Research agents require a paid-tier key."
+                ".env (create one at https://aistudio.google.com/apikey)."
             )
         try:
             import google.genai  # noqa: F401, PLC0415
@@ -222,9 +229,10 @@ class DeepResearcher:
         api = client if client is not None else self._client_or_load()
         report(f"Starting Deep Research with {agent_id}. This usually takes 2–15 minutes.")
 
-        interaction = api.interactions.create(
-            body={"agent": agent_id, "input": topic, "background": True}
-        )
+        # The request fields go as direct keyword arguments: the SDK's create()
+        # signature is `**body`, validated against a whitelist. Passing
+        # `body={...}` arrives as a field literally named "body" and is rejected.
+        interaction = api.interactions.create(agent=agent_id, input=topic, background=True)
         interaction_id = getattr(interaction, "id", None)
         if not interaction_id:
             raise ResearchError("Deep Research did not return an interaction id")
@@ -252,7 +260,8 @@ class DeepResearcher:
 
     def _poll(self, api, interaction_id: str, report, started: float) -> tuple[str, int]:
         """Poll until terminal, translating each status into a clear outcome."""
-        last_reported = -1
+        last_count = -1
+        last_spoke_at = -_PROGRESS_EVERY_S  # so the first poll always reports
         while True:
             if (waited := time.perf_counter() - started) > self.timeout_seconds:
                 # Cancel rather than abandon a job that is being billed.
@@ -272,9 +281,14 @@ class DeepResearcher:
             searches = _count_searches(current)
 
             if status in _PENDING:
-                if searches != last_reported:
-                    report(f"Researching… {searches} search(es) so far, {waited / 60:.1f} min elapsed.")
-                    last_reported = searches
+                # Report on a time cadence, not only when the search count moves.
+                # The live API does not expose the agent's search steps while it
+                # works — `steps` holds just the user input — so a count-driven
+                # line falls silent for minutes and the run looks hung.
+                if searches != last_count or (waited - last_spoke_at) >= _PROGRESS_EVERY_S:
+                    detail = f", {searches} search(es) so far" if searches else ""
+                    report(f"Researching… {waited / 60:.1f} min elapsed{detail}.")
+                    last_count, last_spoke_at = searches, waited
                 time.sleep(self.poll_seconds)
                 continue
 
@@ -290,9 +304,10 @@ class DeepResearcher:
         match status:
             case "budget_exceeded":
                 return ResearchError(
-                    "Deep Research stopped: the account's budget was exceeded. The "
-                    "Deep Research agents require a paid-tier Gemini API key; a "
-                    "free-tier key cannot run them."
+                    "Deep Research stopped: the account's budget or quota was "
+                    "exceeded. A free-tier key can run these agents, but the "
+                    "allowance is limited — wait for the quota window to reset, or "
+                    "use a narrower topic and the 'standard' agent."
                 )
             case "requires_action":
                 return ResearchError(

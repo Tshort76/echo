@@ -42,6 +42,22 @@ class FakeInteraction:
         self.error = error
 
 
+#: The request fields the real SDK accepts, from
+#: ``google.genai._gaos.google_genai._CREATE_BODY_KEYS``. Mirrored here so the fake
+#: rejects what the real client rejects — the first version of this fake took a
+#: ``body=`` kwarg, which is *not* the real shape, so it happily validated a call
+#: that failed against the live API. A fake that accepts more than the real thing
+#: tests nothing.
+CREATE_BODY_KEYS = frozenset(
+    {
+        "agent", "agent_config", "background", "environment", "generation_config",
+        "input", "labels", "model", "previous_interaction_id", "response_format",
+        "response_mime_type", "response_modalities", "safety_settings",
+        "service_tier", "store", "stream", "system_instruction", "tools", "webhook_config",
+    }
+)
+
+
 class FakeInteractions:
     """Replays a scripted sequence of statuses, recording what it was asked."""
 
@@ -54,7 +70,16 @@ class FakeInteractions:
         self.get_calls = 0
         self.cancelled = []
 
-    def create(self, body=None, **_kw):
+    def create(self, *, request=None, api_version=None, extra_headers=None,
+               extra_query=None, extra_body=None, timeout=None, **body):
+        """Mirror the real signature: fields arrive as **kwargs, name-checked."""
+        unknown = set(body) - CREATE_BODY_KEYS
+        if unknown:
+            raise TypeError(
+                "create() got unexpected keyword argument(s): "
+                + ", ".join(sorted(unknown))
+                + ". Use extra_body=... to send additional request body fields."
+            )
         self.created_body = body
         return FakeInteraction(id="int_1", status="queued")
 
@@ -92,9 +117,15 @@ class TestAvailability:
         assert ok is False
         assert "GEMINI_API_KEY" in reason
 
-    def test_it_warns_that_a_paid_tier_is_needed(self):
+    def test_it_points_at_where_to_get_a_key(self):
         _ok, reason = DeepResearcher(api_key="").is_available()
-        assert "paid" in reason.lower()
+        assert "aistudio.google.com" in reason
+
+    def test_an_explicit_empty_key_does_not_fall_back_to_the_environment(self, monkeypatch):
+        """`or` would make "" mean "use the env key", which hides a missing key
+        whenever the developer happens to have one configured."""
+        monkeypatch.setattr(research.ec, "GEMINI_API_KEY", "a-key-from-the-environment")
+        assert DeepResearcher(api_key="").is_available()[0] is False
 
     def test_a_key_is_enough_to_be_available(self):
         assert DeepResearcher(api_key="pretend-key").is_available() == (True, "")
@@ -138,6 +169,20 @@ class TestCallShape:
         assert api.created_body["input"] == "a topic"
         assert api.created_body["background"] is True
         assert "model" not in api.created_body
+
+    def test_the_fields_are_passed_as_keyword_arguments(self, tmp_path):
+        """Regression: `create(body={...})` is rejected by the real SDK as a field
+        named "body". The fake enforces the same whitelist, so this would fail."""
+        api = FakeInteractions()
+        researcher().run("t", "n", client=FakeClient(api), keep_dir=tmp_path)
+        assert "body" not in api.created_body
+        assert set(api.created_body) <= CREATE_BODY_KEYS
+
+    def test_the_fake_rejects_the_wrong_shape(self, tmp_path):
+        """Proves the fake would have caught the original mistake."""
+        api = FakeInteractions()
+        with pytest.raises(TypeError, match="unexpected keyword argument"):
+            api.create(body={"agent": "x"})
 
     def test_the_agent_choice_reaches_the_call(self, tmp_path):
         api = FakeInteractions()
@@ -185,9 +230,11 @@ class TestPolling:
 class TestTerminalStatuses:
     """Lowercase statuses, and each one deserves its own message."""
 
-    def test_budget_exceeded_explains_the_paid_tier(self, tmp_path):
+    def test_budget_exceeded_explains_the_quota(self, tmp_path):
+        """A free-tier key *can* run these agents (verified live), so this status
+        means the allowance ran out — not that the tier is wrong."""
         api = FakeInteractions(statuses=("budget_exceeded",))
-        with pytest.raises(ResearchError, match="paid-tier"):
+        with pytest.raises(ResearchError, match="quota"):
             researcher().run("t", "n", client=FakeClient(api), keep_dir=tmp_path)
 
     def test_requires_action_is_refused_rather_than_polled_forever(self, tmp_path):

@@ -75,7 +75,9 @@ class GeminiEngine(BaseEngine):
 
     def __init__(self, model: str = None, api_key: str = None):
         self.model = model or ec.GEMINI_TTS_MODEL
-        self._api_key = api_key or ec.GEMINI_API_KEY
+        # `is not None`, not `or`: an explicit "" means "no key", and `or` would
+        # silently fall back to the environment.
+        self._api_key = api_key if api_key is not None else ec.GEMINI_API_KEY
         self._client = None
 
     def check_available(self) -> None:

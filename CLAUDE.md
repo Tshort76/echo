@@ -195,13 +195,28 @@ Status handling is most of the module's value:
 | --- | --- |
 | `queued`, `in_progress` | poll; progress from counting search steps |
 | `completed` | take `output_text` |
-| `budget_exceeded` | its own message — the agents need a **paid-tier** key |
+| `budget_exceeded` | its own message — quota exhausted, not a code fault |
 | `requires_action` | the collaborative-planning pause; refused clearly rather than polled forever |
 | `failed`, `incomplete`, `cancelled` | `ResearchError` naming the status and any detail |
 
-A run takes 2–15 minutes, so `run()` takes an `on_progress` callback (the CLI logs it,
-the GUI dialog shows it) and enforces a timeout that **cancels** the interaction rather
-than abandoning a billed job.
+A run takes several minutes (measured: 8.9 min for a focused topic on the standard
+agent), so `run()` takes an `on_progress` callback (the CLI logs it, the GUI dialog
+shows it) and enforces a timeout that **cancels** the interaction rather than
+abandoning a running job.
+
+**The API exposes no search progress mid-run.** `steps` on a polled in-progress
+interaction contains only the `user_input` step — the `GoogleSearchCallStep` types
+exist in the SDK but are not populated while the agent works. So `_count_searches()`
+returns 0 throughout a real run, and progress is reported on a **time** cadence
+(`_PROGRESS_EVERY_S`) rather than when the count changes. A count-driven line printed
+once and then went silent for nine minutes, which reads as a hung process.
+
+Two live-verified facts worth keeping: a **free-tier key runs these agents** (an
+earlier note here claimed paid-tier only — that was inherited from a third-party
+answer and was wrong), and the report's own markdown legitimately keeps inline links
+and tables. Do not "fix" that: `extractors/markdown.py` unwraps links to their text
+and drops tables, so the narrated output is clean while `<name>.notes.md` keeps the
+citations. Verify narration cleanliness on the **Script**, not on the `.md`.
 
 The report arrives as cited markdown, which is not narratable. `to_narration_source()`
 trims the trailing references section and bracketed citation markers, then the existing
@@ -211,6 +226,11 @@ asking for markdown and then stripping it. Citations survive in `<name>.notes.md
 Note the `None`-not-`or` defaults in `__post_init__`: `poll_seconds or default` made
 `poll_seconds=0` silently become 15, which is both an un-tunable knob and a 90-second
 test suite.
+
+There is a key-free alternative in `.claude/commands/research.md`: a `/research`
+command that does the searching and writes the same two files. It needs no echo code
+because a `.md` file on disk is already the interface between a researcher and the
+pipeline — keep it that way rather than adding a second research backend.
 
 ### Normalization
 

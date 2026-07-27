@@ -317,6 +317,14 @@ class TestNormalizerAvailability:
         assert ok is False
         assert "GEMINI_API_KEY" in reason
 
+    def test_an_explicit_empty_key_does_not_fall_back_to_the_environment(self, monkeypatch):
+        """`api_key or ec.GEMINI_API_KEY` made "" mean "use the env key", so this
+        test passed only while no key was configured."""
+        monkeypatch.setattr(norm.ec, "GEMINI_API_KEY", "a-key-from-the-environment")
+        ok, reason = norm.GeminiNormalizer(api_key="").is_available()
+        assert ok is False
+        assert "GEMINI_API_KEY" in reason
+
     def test_gemini_with_a_key_is_available(self):
         ok, _reason = norm.GeminiNormalizer(api_key="pretend-key").is_available()
         assert ok is True

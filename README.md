@@ -59,14 +59,17 @@ Every setting has a sensible default; this file only overrides them.
 # Output
 DEFAULT_OUTPUT_FOLDER="/Users/you/Audiobooks"
 DEFAULT_FORMAT="m4b"            # m4b (chaptered) | mp3
+M4B_BITRATE="64k"               # AAC/MP3 bitrate when re-encoding
 WRITE_TRANSCRIPT="false"        # also write .srt when the engine reports timings
 
 # Synthesis
 DEFAULT_ENGINE="edge"           # edge | gemini | google-cloud | mlx
 DEFAULT_VOICE="en-GB-SoniaNeural"
 DEFAULT_SPEED="1.25"            # baked into the audio; 1.0 keeps the file re-usable
+DEFAULT_CHUNK_SIZE="8000"       # characters per request, capped by the engine's own limit
 DEFAULT_MAX_THREADS="4"
 DEFAULT_MAX_RETRIES="3"
+DEFAULT_RETRY_BACKOFF="2.0"     # seconds before the first retry, doubling after that
 
 # Structure
 CHAPTER_HEADING_LEVEL="2"       # headings at or above this level start a chapter
@@ -77,17 +80,22 @@ GUTENBERG_DIR="~/.cache/echo/gutenberg"   # where downloaded books are cached
 
 # Google engines
 GEMINI_API_KEY="..."            # for --engine gemini and --normalize gemini
+                                # (GOOGLE_API_KEY works too)
 GEMINI_TTS_MODEL="gemini-2.5-flash-preview-tts"
 GOOGLE_CLOUD_VOICE="en-GB-Neural2-C"
 
 # Local synthesis (Apple Silicon)
 MLX_TTS_MODEL="prince-canuma/Kokoro-82M"
 MLX_TTS_VOICE="bf_emma"
+MLX_LANG_CODE=""                # blank infers the language from the voice name
 
 # Optional LLM text normalization
 NORMALIZER="off"                # off | local | gemini
 LOCAL_LLM_BASE_URL="http://localhost:1234/v1"
 LOCAL_LLM_MODEL="qwen3"
+LOCAL_LLM_API_KEY="not-needed"  # most local servers ignore this
+GEMINI_TEXT_MODEL="gemini-2.5-flash"      # used by --normalize gemini
+NORMALIZER_LENGTH_TOLERANCE="0.25"        # reject a rewrite that drifts this much in length
 ```
 
 # Speech engines
@@ -144,7 +152,7 @@ python create_audio.py -g "art of war" --list-matches
      id   downloads  formats            title — author
     132      13,426  epub,text,html     The Art of War — Sunzi, active 6th century B.C.
   17405       7,795  epub,text,html     The Art of War — Sunzi, active 6th century B.C.
-  13549       2,040  epub,text,html     The Art of War — Jomini, Antoine Henri, baron de
+  ...                                   (download counts change, so will the order)
 
 # Convert the best match, or pin an exact edition
 python create_audio.py -g "art of war"
@@ -198,6 +206,7 @@ python create_audio.py --list-voices -e gemini
 
 | Flag | Meaning |
 | --- | --- |
+| `-o, --output` | where to write the audio (default: beside the source) |
 | `-e, --engine` | `edge`, `gemini`, `google-cloud`, `mlx` |
 | `-v, --voice` | voice id for that engine (default: the engine's own) |
 | `-s, --speed` | playback multiplier, 0.5–3.0 |
@@ -209,9 +218,11 @@ python create_audio.py --list-voices -e gemini
 | `--save`, `--transcript` | also write `.txt` / `.srt` |
 | `--no-resume` | ignore chunks left by an interrupted run |
 | `--list-engines`, `--list-voices` | inspect what's available |
+| `--debug` | verbose logging |
 | `-g, --gutenberg` | search Project Gutenberg for this title instead of using a file |
 | `--author` | narrow the Gutenberg search |
 | `--gutenberg-id` | convert an exact Gutenberg book id |
+| `--language` | catalogue language to search (default: `en`) |
 | `--list-matches` | show Gutenberg matches with ids, then exit |
 | `--prefer` | `epub` (default, keeps chapters) or `text` |
 
@@ -328,8 +339,13 @@ from echo.audio.engines import all_voices, available_engines, get_engine
 for engine, ok, reason in available_engines():
     print(engine.name, ok, reason)
 
-# Find British female voices on the default engine
-[v.id for v in get_engine("edge").voices() if v.locale == "GB" and v.gender == "Female"]
+# Find British English female voices on the default engine
+# (filter on language too — locale "GB" also covers cy-GB Welsh)
+[
+    v.id
+    for v in get_engine("edge").voices()
+    if v.language == "en" and v.locale == "GB" and v.gender == "Female"
+]
 # ['en-GB-LibbyNeural', 'en-GB-MaisieNeural', 'en-GB-SoniaNeural']
 
 # Every voice across every ready engine

@@ -151,12 +151,42 @@ class TestMlxEngine:
         assert MlxEngine().max_concurrency == 1
 
     def test_missing_phonemizer_is_explained_not_just_raised(self):
-        """Kokoro needs misaki, whose spaCy dependency has no 3.14 wheels — the
+        """Kokoro needs misaki, whose spaCy dependency cannot build on 3.14 — the
         engine should say what to do about it."""
         engine = MlxEngine(model_id="prince-canuma/Kokoro-82M")
         ok, reason = engine.is_available()
         if not ok and "misaki" in reason:
             assert "MLX_TTS_MODEL" in reason or "3.13" in reason
+
+    def test_a_missing_espeak_fallback_is_caught_up_front(self, monkeypatch):
+        """Without espeak, misaki returns None phonemes for out-of-dictionary words
+        and Kokoro dies mid-synthesis on `NoneType + str`. Reporting it at
+        check_available() time turns three failed retries into one clear message."""
+        import echo.audio.engines.mlx as mlx_engine
+
+        pytest.importorskip("misaki.en", reason="misaki not installed on this interpreter")
+        monkeypatch.setattr(mlx_engine, "_wire_espeak", lambda: False)
+        ok, reason = MlxEngine(model_id="prince-canuma/Kokoro-82M").is_available()
+        assert ok is False
+        assert "espeak" in reason.lower()
+        assert "espeakng-loader" in reason
+
+    def test_espeak_wiring_is_reported_honestly(self):
+        """_wire_espeak() must return a bool, never raise — it runs inside an
+        availability check that has to stay side-effect-free for a UI to call."""
+        from echo.audio.engines.mlx import _wire_espeak
+
+        assert isinstance(_wire_espeak(), bool)
+
+    def test_a_non_kokoro_model_needs_no_phonemizer(self, monkeypatch):
+        """Chatterbox works on 3.14 precisely because it skips this whole chain."""
+        import echo.audio.engines.mlx as mlx_engine
+
+        monkeypatch.setattr(mlx_engine, "_wire_espeak", lambda: False)
+        engine = MlxEngine(model_id="mlx-community/chatterbox-turbo-4bit")
+        ok, reason = engine.is_available()
+        assert "espeak" not in reason.lower()
+        assert "misaki" not in reason.lower()
 
 
 class TestVoiceInfo:

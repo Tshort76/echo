@@ -51,8 +51,12 @@ run since the refactor.
       Written, unit-tested, never made a call. Needs `GEMINI_API_KEY`.
 - [x] ~~**Exercise `--engine google-cloud` end-to-end.**~~ Works — the free-tier path
       is real, via the ADC credentials already on this machine.
-- [x] ~~**Run `--engine mlx` through echo's own wrapper.**~~ Works with
-      `MLX_TTS_MODEL=mlx-community/chatterbox-turbo-4bit` on Python 3.14.
+- [x] ~~**Run `--engine mlx` through echo's own wrapper.**~~ Works. Chatterbox Turbo on
+      3.14, and **Kokoro on 3.13 at RTF 0.053** — ≈19× faster than playback, so a
+      ten-hour book synthesizes in about half an hour, offline and unmetered. Getting
+      there needed two fixes: the documented `misaki[en]` install is unbuildable, and
+      Kokoro needs an espeak fallback it never asks for (see
+      `requirements-local.txt` and `_wire_espeak()`).
 - [x] ~~**Rebuild the packaged app.**~~ Built on Python 3.13 (`.venv-build`) →
       `dist/Echo.app`, 357 MB. Launches cleanly, finds its bundled ffmpeg and
       `voices.csv`. The spec's engine probing works: `google.genai` (311 modules) and
@@ -70,12 +74,14 @@ run since the refactor.
       a real bug: `pyproject.toml` listed only *packages*, so the top-level
       `create_audio` module was never installed and `echo-audio` died with
       `ModuleNotFoundError`. Fixed with `py-modules`; verified from an unrelated cwd.
-- [ ] **Build a second app bundle with `mlx-audio` included.** (M) The current
-      bundle has the three cloud engines only. On Python 3.13 `misaki[en]` installs
-      (spaCy has 3.13 wheels), so a build venv with `requirements-local.txt` +
-      `misaki[en]` should give a packaged app that runs **Kokoro** locally. Untested,
-      and the riskiest bundling job so far — mlx and transformers bring hidden
-      imports and data files.
+- [ ] **Build an app bundle with `mlx-audio` included.** (M) `.venv-build` now has the
+      full local stack installed and Kokoro working, so `python packaging/build_app.py`
+      would bundle mlx automatically — the spec probes installed packages. Still the
+      riskiest bundling job: mlx, transformers and spaCy bring hidden imports and data
+      files, and `espeakng-loader`'s dylib plus spaCy's `en_core_web_sm` model are data
+      that PyInstaller will not find by static analysis. Expect to add `datas` entries.
+      **Note:** the previously-built `dist/Echo.app` predates this, so a rebuild now
+      produces a materially different (larger) app.
 
 - [ ] **A round-trip integrity test: text → speech → text.** (M) The one thing no
       current test does is check that the audio actually *contains the words*.

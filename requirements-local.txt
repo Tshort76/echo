@@ -1,20 +1,48 @@
 # On-device synthesis on Apple Silicon (optional).
 #
-#   --engine mlx
+#   pip install -r requirements-local.txt
+#   python create_audio.py book.epub -e mlx -v bf_emma
 #
-# Which model runs is set by MLX_TTS_MODEL. mlx-audio hosts twenty-odd of them,
-# and they differ in speed, quality and dependencies.
+# Requires Python <= 3.13. Verified working on 3.13.7; on 3.14 spaCy cannot build
+# (see below), so Kokoro is unavailable there — use
+# MLX_TTS_MODEL=mlx-community/chatterbox-turbo-4bit instead, which needs no
+# phonemizer and works on 3.14.
 #
-# Kokoro-82M is the fast, clean narration default — but it needs the `misaki`
-# phonemizer, whose [en] extra pulls in spaCy, and spaCy has no Python 3.14
-# wheels. So:
+# ── Do NOT use `misaki[en]` ───────────────────────────────────────────────────
+# The obvious `pip install 'misaki[en]'` FAILS. The extra pulls in
+# spacy-curated-transformers, which constrains spaCy; pip then backtracks to a
+# spaCy old enough to have no wheel for your Python, tries to build it from
+# source, and dies because that spaCy pins `cython<3.0` while modern numpy's
+# Cython headers require >= 3.0:
 #
-#   Python <= 3.13:  pip install -r requirements-local.txt 'misaki[en]'
-#                    MLX_TTS_MODEL=prince-canuma/Kokoro-82M   (the default)
+#   Error compiling Cython file: ... the NumPy Cython headers require Cython 3.0.0
 #
-#   Python 3.14:     pick a model that needs no phonemizer, e.g.
-#                    MLX_TTS_MODEL=mlx-community/chatterbox-turbo-4bit
+# Installing a modern spaCy directly, without that extra, avoids the whole
+# backtrack. Hence the explicit list below rather than the extra.
 #
-# `--engine mlx` reports which of these applies if the model can't load.
+# ── Why espeak is not optional ────────────────────────────────────────────────
+# misaki has no phonemes for words outside its dictionary and returns None for
+# them. Kokoro then dies with `unsupported operand type(s) for +: 'NoneType' and
+# 'str'` on the first unusual word — "ebook" is enough to trigger it. misaki logs
+# "espeak not installed on your system" and carries on, so the failure surfaces
+# minutes later during synthesis rather than at startup.
+#
+# phonemizer-fork + espeakng-loader supply espeak-ng as a wheel, so no
+# `brew install espeak-ng` is needed; echo points phonemizer at the bundled
+# library in echo/audio/engines/mlx.py::_wire_espeak(). The mlx engine checks all
+# of this in check_available(), so a missing piece is reported up front.
+#
+# The spaCy English model (en_core_web_sm) downloads itself on first use.
+
 -r requirements.txt
 mlx-audio==0.4.6
+
+# Kokoro's grapheme-to-phoneme chain.
+misaki==0.9.4
+num2words>=0.5.13
+spacy>=3.8            # 3.8+ is the first line with wheels for recent Pythons
+click>=8.1            # spacy.cli imports it but does not declare it
+
+# espeak-ng fallback for out-of-dictionary words, as wheels.
+phonemizer-fork>=3.3
+espeakng-loader>=0.2

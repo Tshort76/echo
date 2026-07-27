@@ -57,15 +57,53 @@ _KOKORO_VOICES: tuple[str, ...] = (
 )
 
 _MISAKI_HELP = (
-    "This mlx-audio model needs the 'misaki' phonemizer, which requires spaCy — "
-    "and spaCy has no Python {py} wheels. Either run echo on Python 3.13 "
-    "(`pip install 'misaki[en]'`), or set MLX_TTS_MODEL to a model that needs no "
+    "This mlx-audio model needs the 'misaki' phonemizer, which requires spaCy — and "
+    "spaCy cannot build on Python {py} here. Either run echo on Python 3.13 (see "
+    "requirements-local.txt), or set MLX_TTS_MODEL to a model that needs no "
     "phonemizer, e.g. MLX_TTS_MODEL=mlx-community/chatterbox-turbo-4bit"
+)
+
+_ESPEAK_HELP = (
+    "Kokoro needs an espeak fallback for words outside its dictionary. Without it, "
+    "misaki returns no phonemes for such a word and synthesis dies on the first "
+    "unusual one. Install the pip-only backend: "
+    "`pip install phonemizer-fork espeakng-loader`."
 )
 
 
 def _is_kokoro(model_id: str) -> bool:
     return "kokoro" in model_id.lower()
+
+
+def _wire_espeak() -> bool:
+    """Point phonemizer at the espeak-ng library shipped by ``espeakng-loader``.
+
+    misaki looks for a *system* espeak-ng and silently logs "espeak not installed"
+    when it can't find one — after which any out-of-dictionary word yields
+    ``phonemes=None`` and Kokoro raises ``NoneType + str`` mid-synthesis. Wiring the
+    pip-installed library in avoids requiring `brew install espeak-ng`.
+
+    Idempotent; returns whether a working fallback is now available.
+    """
+    try:
+        import espeakng_loader  # noqa: PLC0415
+        from phonemizer.backend.espeak.wrapper import EspeakWrapper  # noqa: PLC0415
+    except ImportError:
+        return False
+
+    try:
+        library = Path(espeakng_loader.get_library_path())
+        if not library.exists():
+            return False
+        EspeakWrapper.set_library(str(library))
+        # Older phonemizer builds have no set_data_path; the loader's data is found
+        # relative to the library in that case.
+        if hasattr(EspeakWrapper, "set_data_path"):
+            EspeakWrapper.set_data_path(str(espeakng_loader.get_data_path()))
+        return True
+    except Exception as ex:  # pragma: no cover - defensive
+        log.debug(f"Could not wire espeak-ng into phonemizer: {ex}")
+        return False
 
 
 class MlxEngine(BaseEngine):
@@ -99,11 +137,16 @@ class MlxEngine(BaseEngine):
                 import misaki.en  # noqa: F401, PLC0415
             except ImportError as ex:
                 raise EngineUnavailable(_MISAKI_HELP.format(py=platform.python_version())) from ex
+            # Checked here, not left to fail during synthesis: without the espeak
+            # fallback Kokoro reports itself ready and then dies on the first
+            # out-of-dictionary word, three retries deep.
+            if not _wire_espeak():
+                raise EngineUnavailable(_ESPEAK_HELP)
 
     # ── model ───────────────────────────────────────────────────────────────
     def _model_or_load(self):
         if self._model is None:
-            self.check_available()
+            self.check_available()  # also wires espeak for Kokoro
             from mlx_audio.tts.utils import load_model  # noqa: PLC0415
 
             log.info(f"Loading {self.model_id} (first run downloads weights from Hugging Face)")

@@ -89,7 +89,7 @@ echo/
       __init__.py  # Registry: get_engine(), available_engines(), all_voices(), aliases
       edge.py      # edge-tts (default); rate-string conversion; WordBoundary timings
       google.py    # GeminiEngine (API key) + GoogleCloudEngine (ADC, free tier)
-      mlx.py       # mlx-audio on Apple Silicon; Kokoro voice-name decoding
+      mlx.py       # mlx-audio on Apple Silicon; Kokoro voice decoding + espeak wiring
     tts.py         # Orchestration: retry, resume, bounded concurrency, progress logging
     assemble.py    # ffmpeg concat, M4B chapters, atempo speed, SRT, durations
     mp3_utils.py   # configure_ffmpeg(); ID3 + MP4 tags and cover art
@@ -128,6 +128,31 @@ Engines are constructed lazily and cached per process, so importing the registry
 never pulls in mlx or the Google SDKs. `check_available()` must raise
 `EngineUnavailable` with a message that says what to install or which variable to
 set — the GUI shows that text directly and greys the engine out.
+
+### The mlx engine and Kokoro's phonemizer chain
+
+Verified working on Python 3.13.7 at **RTF 0.053** (≈19× faster than playback on an
+M4 Pro). Two traps, both of which cost real debugging time:
+
+**`pip install 'misaki[en]'` does not work.** The extra pulls in
+`spacy-curated-transformers`, which constrains spaCy; pip backtracks to a spaCy with
+no wheel for the interpreter, builds from source, and fails because that spaCy pins
+`cython<3.0` while modern numpy's Cython headers need ≥3.0. Install a modern spaCy
+directly instead — see `requirements-local.txt`, which documents the whole set.
+
+**Kokoro requires a working espeak fallback, and doesn't say so.** misaki returns
+`phonemes=None` for out-of-dictionary words; Kokoro then raises
+`unsupported operand type(s) for +: 'NoneType' and 'str'` on the first unusual word
+("ebook" suffices). misaki merely logs "espeak not installed on your system" and
+continues, so it surfaces during synthesis rather than at startup — and mlx-audio
+re-raises the underlying ImportError as a generic "install misaki", which points at
+the wrong thing.
+
+`_wire_espeak()` fixes this without a system install: `espeakng-loader` ships
+espeak-ng as a wheel, and phonemizer's `EspeakWrapper.set_library()` can be pointed at
+it. `check_available()` calls it, so a missing piece is reported up front instead of
+after three failed retries — which is what happened before, because the check only
+probed `misaki.en` and declared the engine ready.
 
 ### Extraction
 

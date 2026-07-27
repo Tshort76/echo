@@ -137,14 +137,26 @@ gcloud auth application-default login
 
 ### `mlx` — local, on-device (Apple Silicon)
 
-Offline, private, unmetered, Metal-accelerated. `MLX_TTS_MODEL` picks the model
-from mlx-audio's catalogue.
+Offline, private, unmetered, Metal-accelerated. `MLX_TTS_MODEL` picks the model from
+mlx-audio's catalogue; the default is Kokoro-82M.
 
-> **Kokoro needs Python ≤ 3.13.** Kokoro's `misaki` phonemizer depends on spaCy,
-> which has no Python 3.14 wheels. On 3.13 or earlier, `pip install 'misaki[en]'`
-> and use the default model. On 3.14, choose a model that needs no phonemizer:
-> `MLX_TTS_MODEL=mlx-community/chatterbox-turbo-4bit`. `--list-engines` tells you
-> which case you're in.
+**Measured on an M4 Pro:** a real-time factor of **0.053** — about 19× faster than
+playback, so a ten-hour audiobook synthesizes in roughly half an hour, with no
+network and no metering.
+
+```bash
+pip install -r requirements-local.txt
+python create_audio.py book.epub -e mlx -v bf_emma
+```
+
+> **Kokoro needs Python ≤ 3.13** (verified on 3.13.7). Its `misaki` phonemizer
+> needs spaCy, which can't build on 3.14 here. On 3.14, pick a model that needs no
+> phonemizer instead: `MLX_TTS_MODEL=mlx-community/chatterbox-turbo-4bit`.
+> `--list-engines` tells you which case you're in.
+>
+> **Don't `pip install 'misaki[en]'`** — that extra sends pip backtracking into an
+> unbuildable old spaCy. `requirements-local.txt` lists the working set and explains
+> why, including the espeak fallback that Kokoro needs but doesn't ask for.
 
 # Getting a book from Project Gutenberg
 

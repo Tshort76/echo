@@ -24,16 +24,21 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 pytest.importorskip("PySide6", reason="GUI dependencies not installed")
 
 from PySide6.QtCore import Qt  # noqa: E402
+from PySide6.QtGui import QColor  # noqa: E402
 from PySide6.QtWidgets import (  # noqa: E402
     QApplication,
     QCheckBox,
+    QComboBox,
     QFormLayout,
     QLabel,
+    QLineEdit,
     QTabWidget,
 )
 
 import echo.core as core  # noqa: E402
+import gui.style as style  # noqa: E402
 from gui.app import GutenbergDialog, MainWindow, ResearchDialog  # noqa: E402
+from gui.style import apply_theme  # noqa: E402
 from gui.sources import SourceSelection, slugify  # noqa: E402
 from gui.workers import ConversionWorker  # noqa: E402
 
@@ -343,6 +348,83 @@ class TestLabelsFit:
             if w.text() and w.width() < w.sizeHint().width()
         ]
         assert clipped == [], f"text does not fit: {clipped}"
+
+
+class TestDropdownsLookLikeDropdowns:
+    """A QComboBox styled by this theme must show a visible drop-down indicator.
+
+    This is checked in *pixels* rather than by reading the stylesheet, because the
+    original bug was silent: styling ``QComboBox::drop-down`` stops Qt drawing its
+    own arrow, and with no image supplied the arrow simply disappeared — leaving a
+    control identical to a QLineEdit. A stylesheet assertion would have passed.
+    """
+
+    WELL = 26  # right-hand strip to inspect, a little wider than the styled well
+
+    @staticmethod
+    def _render(widget, width=240, height=34):
+        widget.setStyleSheet("")  # inherit the application theme, as in the real app
+        widget.resize(width, height)
+        widget.show()
+        QApplication.processEvents()
+        return widget.grab().toImage()
+
+    @classmethod
+    def _ink(cls, image, x_from, x_to):
+        """Count pixels that differ from the pale field background."""
+        scale = image.width() / 240  # devicePixelRatio of the grab
+        inset = int(4 * scale)
+        count = 0
+        for x in range(int(x_from * scale), int(x_to * scale)):
+            for y in range(inset, image.height() - inset):
+                colour = QColor(image.pixel(x, y))
+                if 765 - (colour.red() + colour.green() + colour.blue()) > 40:
+                    count += 1
+        return count
+
+    @pytest.fixture
+    def themed(self, app):
+        apply_theme(app)
+        yield
+        app.setStyleSheet("")
+
+    def test_a_combo_box_draws_an_indicator(self, themed):
+        combo = QComboBox()
+        combo.addItems(["en-GB-SoniaNeural", "en-US-AriaNeural"])
+        image = self._render(combo)
+        assert self._ink(image, 240 - self.WELL, 237) > 10, "no drop-down indicator drawn"
+
+    def test_a_line_edit_does_not(self, themed):
+        """Proves the check above is measuring the indicator, not the text or border."""
+        image = self._render(QLineEdit("en-GB-SoniaNeural"))
+        assert self._ink(image, 240 - self.WELL, 237) == 0
+
+    def test_the_indicator_is_not_painted_over_the_text(self, themed):
+        """Qt places a *state-dependent* arrow image by the widget rect rather than
+        the drop-down rect, which painted a second chevron in the middle of the
+        field. Hence one image and no :hover/:disabled variants."""
+        combo = QComboBox()
+        combo.addItems(["Off"])  # short text, so the middle of the field is empty
+        image = self._render(combo)
+        assert self._ink(image, 70, 200) == 0, "something is drawn over the field's text area"
+
+    def test_long_text_is_not_drawn_under_the_indicator(self, themed):
+        combo = QComboBox()
+        combo.addItems(["M4B — audiobook with chapter marks, and then some more words"])
+        combo.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon)
+        image = self._render(combo)
+        # The chevron sits alone in the well: its ink is far less than glyphs would add.
+        assert self._ink(image, 240 - self.WELL + 2, 237) < 120
+
+    def test_a_missing_asset_falls_back_to_qt_s_own_arrow(self):
+        """Half-styling is worse than none: without an image, ``::drop-down`` rules
+        would remove the indicator altogether. So they are omitted entirely."""
+        assert style._combo_rules(None) == ""
+
+    def test_the_chevron_is_cached_rather_than_rewritten(self):
+        first = style.chevron_asset()
+        assert first is not None and first.exists()
+        assert style.chevron_asset() == first
 
 
 class TestExtractionControls:

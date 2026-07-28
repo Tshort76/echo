@@ -382,6 +382,28 @@ truncates mid-word. `test/test_gui.py::TestLabelsFit` guards both by walking eve
 form label and comparing width against `sizeHint()` — keep it passing rather than
 eyeballing screenshots.
 
+**Styling `QComboBox::drop-down` deletes the arrow.** The theme once set
+`QComboBox::drop-down { border: none; width: 22px }`, which is enough to stop Qt
+painting its own indicator — and since a stylesheet cannot describe a glyph, the
+arrow was simply gone. Every dropdown in the app rendered identically to a
+`QLineEdit`. So: style that sub-control only when also supplying an image, which is
+why `style.chevron_asset()` paints one with `QPainter` into the temp directory
+(nothing to bundle or resolve in a frozen build) and `_combo_rules()` returns **""**
+when it can't — half-styling is worse than none.
+
+Two smaller Qt facts found alongside it. A *state-dependent* arrow image
+(`QComboBox:hover::down-arrow { image: … }`) is positioned against the widget rect
+rather than the drop-down rect, so it paints a second chevron in the middle of the
+field; use one image and put hover feedback on the border instead. And the CSS
+zero-size-plus-borders triangle trick does **not** work here — Qt renders it as a
+small filled rectangle.
+
+`test/test_gui.py::TestDropdownsLookLikeDropdowns` guards this **in pixels**
+(`widget.grab()`, then count non-background pixels in the drop-down strip, and assert
+a `QLineEdit` has none). It has to be pixels: the original bug left a perfectly valid
+stylesheet, so any assertion about the QSS text would have passed. Verified to fail
+against the old rule before being relied on.
+
 ### Packaging
 
 `python packaging/build_app.py` freezes the GUI with PyInstaller (onedir). Two

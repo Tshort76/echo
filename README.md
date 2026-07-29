@@ -479,9 +479,11 @@ for engine, ok, reason in available_engines():
 # Every voice across every ready engine
 len(all_voices())
 
-# Audition one — synthesizes a short sample and opens it
+# Audition one — synthesizes a short sample and opens it in your audio player.
+# Writes to a temp directory, one file per voice. This is the same code path the
+# GUI's preview button uses, so what you hear here is what the book will sound like.
 import echo.core as core
-core.play_mp3_clip("en-GB-SoniaNeural", speed=1.0)
+core.preview_voice("en-GB-SoniaNeural", speed=1.25)
 ```
 
 Refresh the bundled edge voice cache (`resources/voices.csv`):
@@ -542,8 +544,8 @@ pytest                  # works from the repo root or from inside test/
 ```
 
 The suite is **tier-aware**: tests that need an optional dependency skip themselves
-rather than fail, so it passes on the lite install as well as a full one (285 tests
-on lite, 345 with every extra). That matters because six tests once quietly assumed
+rather than fail, so it passes on the lite install as well as a full one (293 tests
+on lite, 359 with every extra). That matters because six tests once quietly assumed
 `pymupdf4llm` and `google-genai` were present — nothing had ever run them on a
 minimal environment.
 

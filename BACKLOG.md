@@ -10,7 +10,7 @@ reasoning outlives the checkbox.
 
 ---
 
-## Where we stand — 27 July 2026
+## Where we stand — 29 July 2026
 
 Phases P0–P3 of the review are done, plus several things that were later phases or
 were not in the review at all.
@@ -31,9 +31,12 @@ were not in the review at all.
 | Deep Research call shape corrected; key-free `/research` command | `699e368` |
 | Kokoro on mlx working locally at **RTF 0.053** | `b4dc10a` |
 | Lite, model-free install tier — 100 MB, no ML runtime | `a3cd780` |
-| `requirements-local-llm.txt` rename; README and backlog refresh | this commit |
+| `requirements-local-llm.txt` rename; README and backlog refresh | `bbe13a7` |
+| Dropdowns given a visible chevron — they had rendered as blank text fields | `37a67ff` |
+| Voice preview consolidated from three implementations into one | this commit |
 
-**345 tests** pass with every extra installed; **285** on the lite install.
+**359 tests** pass with every extra installed; **293** on the lite install (both
+measured this session, the lite figure in a throwaway virtualenv).
 **All four engines are now verified live** against their real services, which was the
 biggest open risk when this file was written. `edge` is exercised end-to-end on
 markdown, PDF, EPUB, two real Gutenberg books and a Deep Research report.
@@ -42,7 +45,7 @@ markdown, PDF, EPUB, two real Gutenberg books and a Deep Research report.
 
 ## 1. Verification gaps
 
-Still the highest-value items here, but a much shorter list than a day ago.
+Still the highest-value items here, but a much shorter list than when this was written.
 
 - [ ] **Convert a full-length book you actually want to listen to.** (S)
       Nothing else substitutes. It's where the real questions surface: do chapter
@@ -96,6 +99,9 @@ Still the highest-value items here, but a much shorter list than a day ago.
       next dependency change can quietly re-break the lite install exactly as the
       last one did (§2). A script that builds each tier in a temp venv and runs
       `pytest` would turn a habit into a check.
+      **Cheaper than it looks:** `python3 -m venv` + `pip install -r requirements.txt
+      pytest` in a throwaway directory took about a minute, and the lite suite runs in
+      16 s. The manual version is two commands — worth wrapping rather than repeating.
 - [ ] **Build an app bundle with `mlx-audio` included.** (M) `.venv-build` now has the
       full local stack installed and Kokoro working, so `python packaging/build_app.py`
       would bundle mlx automatically — the spec probes installed packages. Still the
@@ -144,6 +150,9 @@ to rediscover. All are fixed; the two open consequences follow the table.
 | Deep Research progress was reported by counting search steps. The API never populates `steps` mid-run, so it printed once and went silent for nine minutes. | A progress indicator driven by a field that stays empty reads exactly like a hung process. Fall back to a time cadence. |
 | Six tests assumed optional dependencies were installed — asserting a specific PDF backend, or that Gemini is available with a key when the SDK is absent. | Nothing had ever run the suite on a minimal install, so the tests encoded the developer's machine. Hence the four-tier item in §1. |
 | `wav.py` said a WAV header was "not worth a dependency" — directly above an unconditional `import numpy`. | Comments are not enforced. This one was load-bearing for the lite tier, and wrong. |
+| Every dropdown in the GUI rendered as a blank text field. `QComboBox::drop-down` was styled with `border: none`, which stops Qt drawing its own indicator — and a stylesheet cannot supply a glyph, so the arrow was simply absent. | A half-styled sub-control is worse than an unstyled one, and the stylesheet still *looked* correct. Guard rendering in pixels, and look at a screenshot: the replacement's first attempt passed a pixel count while drawing a grey blob. |
+| The voice preview cached its temp file under `abs(hash(voice))`. Python randomizes string hashing per process, so "repeated previews reuse the file" was never true across launches, and each run left another file behind. | `hash()` is not a stable identifier — not across processes, not on disk, not in a URL. Use a slug. |
+| Consolidating the three preview implementations, the ffmpeg speed fallback passed `out` as both input and output — and since `-y` truncates the output before reading, the preview came out ~30% short rather than failing. | The mocked test passed straight through it; a single live run caught it. Same lesson as the Deep Research fake: a test double will not tell you what the real tool does with your arguments. |
 
 Two open risks from the same work:
 
@@ -179,6 +188,10 @@ From the review's phase 5, plus one thing the review asked for that shipped with
       The review said ship the preview *before* the feature; the feature shipped
       first. The guardrails are real (length drift, preamble, refusal, exceptions)
       but there is currently no way to *see* what a model changed in your book.
+- [ ] **No way to audition a voice from the CLI.** (S) `--list-voices` prints names
+      only; hearing one means calling `core.preview_voice()` in Python. A
+      `--preview VOICE` flag is now a two-line addition, since the GUI and the Python
+      API already share that one function.
 - [ ] **Per-chapter or per-speaker voices.** (M) `Utterance.voice` already exists and
       the orchestrator already honours it — nothing sets it yet. Cheapest real
       feature on this list.

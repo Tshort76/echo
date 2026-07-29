@@ -28,6 +28,17 @@ pip install -r requirements.txt
 brew install ffmpeg                  # required to join audio / write M4B
 ```
 
+**Two virtualenvs already exist in this checkout, and which one you use matters:**
+
+| | Python | State |
+| --- | --- | --- |
+| `.venv` | 3.14.0 | day-to-day. Has every extra **except a working Kokoro** — `misaki` is installed but `import misaki.en` raises `ModuleNotFoundError: spacy`, so `--engine mlx` reports itself unavailable (correctly, with the right message). |
+| `.venv-build` | 3.13.7 | packaging, and the only place **Kokoro actually runs**. Use it for anything touching mlx. |
+
+So `pytest` in `.venv` exercises 3.14 with mlx unavailable; run it in `.venv-build`
+too when changing the mlx engine. Neither is the *lite* tier — to test that, make a
+throwaway venv with `requirements.txt` + `pytest` (about a minute; see BACKLOG §1).
+
 **The core install is deliberately model-free** — ~100 MB, no ML runtime, no weights,
 no local LLM; every voice is an API call. Tiers, with measured `site-packages` sizes:
 
@@ -101,7 +112,8 @@ python packaging/build_app.py                             # -> dist/Echo.app | d
 
 ```
 echo/
-  core.py          # Public API: file_to_audio(), extract_document(), build_script(), convert_to_text()
+  core.py          # Public API: file_to_audio(), extract_document(), build_script(),
+                   #   convert_to_text(), preview_voice()
   document.py      # The data model: Block/BlockKind, Document, Utterance/Chapter/Script, Timing, Segment
   normalize.py     # Rules normalization, page-artifact detection, Script assembly, optional LLM normalizers
   gutenberg.py     # Project Gutenberg: search via Gutendex, ranked results, cached downloads, cover art
@@ -135,7 +147,7 @@ gui/
   sources.py       # SourceSelection: what was chosen, how to describe it, and its name
   voices.py        # Adapter over echo.audio.engines for the dropdowns
   workers.py       # QThread workers; capture backend logs -> progress bar/log panel
-  style.py         # QSS theme
+  style.py         # QSS theme; chevron_asset() paints the combo-box arrow
 echo_gui.spec      # PyInstaller config (bundles whichever optional engines are installed)
 packaging/         # build_app.py, fetch_ffmpeg.py, icons/
 test/              # pytest suite; conftest.py anchors demo-data paths on __file__
@@ -339,6 +351,16 @@ only deleted after successful assembly.
 Progress is logged as `"Progress Report: NN%"` — the GUI parses that exact string,
 so don't change the format.
 
+**Voice previews live in `core.preview_voice()`, and only there.** There were three
+copies (this, the GUI worker, a dead edge-only helper) with three different sample
+texts and two destinations; `PreviewWorker` now only moves the call off the UI thread.
+Two things it has to get right: the filename is a *slug* of engine and voice, because
+`abs(hash(voice))` is per-process and so cached nothing across launches; and when
+`supports_speed` is False the speed is applied by ffmpeg into a **separate staged
+file** — `out.with_suffix(".mp3")` is `out` itself for an mp3 engine, and ffmpeg's
+`-y` truncates its output before reading, which silently yields a preview ~30% short
+instead of an error.
+
 ### Assembly
 
 `assemble.py` shells out to ffmpeg's concat demuxer. MP3-in/MP3-out with no speed
@@ -369,6 +391,26 @@ handler to forward backend log lines to the UI and parse the progress string. Th
 engine and normalizer dropdowns are built from `available_engines()` /
 `available_normalizers()`, so choices needing setup are disabled with the reason in
 their tooltip, and `ConvertTab.gather()` refuses to start a conversion on one.
+
+**You can see the UI without a display, and you should.** Qt's offscreen platform
+renders the real widgets, and `QWidget.grab()` returns a `QPixmap` you can save and
+look at — so a visual change can be checked from a terminal or a background session:
+
+```python
+import os; os.environ["QT_QPA_PLATFORM"] = "offscreen"
+from PySide6.QtWidgets import QApplication
+from gui.style import apply_theme
+from gui.app import MainWindow
+app = QApplication([]); apply_theme(app)
+w = MainWindow(); w.resize(880, 720); w.show(); app.processEvents()
+w.grab().save("/tmp/echo-ui.png")          # then open or Read the PNG
+```
+
+`SettingsDialog()`, `GutenbergDialog()` and `ResearchDialog()` render the same way.
+This is worth reaching for before *and* after a styling change: the combo-box bug
+below was invisible in the stylesheet and obvious in a screenshot, and a pixel count
+alone was not enough — a first fix scored "arrow present" while actually drawing a
+grey blob. Count pixels to catch regressions, but look at the image to judge design.
 
 **A Qt sizing trap worth knowing, hit twice here.** A `QComboBox` in a
 `QFormLayout` row derives its `minimumSizeHint` from its *longest item*. A long

@@ -15,7 +15,6 @@ from __future__ import annotations
 
 import logging
 import re
-import tempfile
 import traceback
 from pathlib import Path
 
@@ -237,12 +236,12 @@ class ResearchWorker(QThread):
 
 
 class PreviewWorker(_BaseWorker):
-    """Synthesizes a short spoken sample for a voice and opens it in the OS player."""
+    """Synthesizes a short spoken sample for a voice and opens it in the OS player.
 
-    _SAMPLE = (
-        "Hello! This is a short preview of how this voice sounds "
-        "at the selected speed. Thank you for listening."
-    )
+    The work itself lives in ``core.preview_voice`` — this only moves it off the UI
+    thread. It used to carry its own copy, with different sample text and its own
+    temp-file naming.
+    """
 
     def __init__(self, voice: str, speed: float, engine: str = None, parent=None):
         super().__init__(parent)
@@ -254,17 +253,7 @@ class PreviewWorker(_BaseWorker):
         self._run_captured(self._make_and_open)
 
     def _make_and_open(self) -> str:
-        import asyncio
-
-        from echo.audio.engines import get_engine
-
-        engine = get_engine(self._engine)
-        engine.check_available()
-        # Keyed by voice so repeated previews of the same voice reuse the file.
-        tmp = Path(tempfile.gettempdir()) / f"echo_preview_{self._engine}_{abs(hash(self._voice))}{engine.audio_suffix}"
-        asyncio.run(engine.synthesize(self._SAMPLE, self._voice, self._speed, tmp))
-        open_in_default_app(tmp)
-        return str(tmp)
+        return str(core.preview_voice(self._voice, self._speed, engine=self._engine))
 
 
 def open_in_default_app(path: Path) -> None:

@@ -5,11 +5,15 @@ network service's.
 """
 
 import asyncio
+import os
+import tempfile
+from pathlib import Path
 
 import pytest
 
 import echo.audio.tts as tts
-from echo.audio.engines.base import BaseEngine, SynthOutput
+import echo.core as core
+from echo.audio.engines.base import BaseEngine, EngineUnavailable, SynthOutput
 from echo.audio.wav import write_pcm16_wav
 from echo.document import Chapter, Script, Timing, Utterance
 
@@ -27,6 +31,8 @@ class FakeEngine(BaseEngine):
     def __init__(self, fail_times: int = 0, fail_always_at: set[int] = None, with_timings: bool = False):
         self.calls = 0
         self.per_index_calls: dict[int, int] = {}
+        self.texts: list[str] = []
+        self.speeds: list[float] = []
         self._fail_times = fail_times
         self._fail_always_at = fail_always_at or set()
         self._with_timings = with_timings
@@ -39,7 +45,11 @@ class FakeEngine(BaseEngine):
 
     async def synthesize(self, text, voice, speed, out_path):
         self.calls += 1
-        index = int(out_path.stem.split("_")[-1])
+        self.texts.append(text)
+        self.speeds.append(speed)
+        # Chunk files are chunk_%05d; anything else (a voice preview) has no index.
+        stem = out_path.stem.split("_")[-1]
+        index = int(stem) if stem.isdigit() else -1
         self.per_index_calls[index] = self.per_index_calls.get(index, 0) + 1
 
         if index in self._fail_always_at:
@@ -191,3 +201,108 @@ class TestProgress:
         with caplog.at_level(logging.INFO, logger="echo.audio.tts"):
             run(script, FakeEngine(), chunks)
         assert any(m.endswith("100%") for m in caplog.messages)
+
+
+class TestVoicePreview:
+    """One preview implementation, in ``core``. There used to be three: this one, a
+    copy inside the GUI worker, and a dead edge-only helper."""
+
+    def test_the_path_is_stable_across_processes(self):
+        """The old name embedded ``abs(hash(voice))``, and Python randomizes string
+        hashing per process — so every launch wrote a new file and the "reuse the
+        file" comment was never true. Two interpreters must agree on the path."""
+        import subprocess
+        import sys
+
+        code = (
+            "import echo.core as core;"
+            "print(core.preview_path('en-GB-SoniaNeural', engine='edge'))"
+        )
+        runs = {
+            subprocess.run(
+                [sys.executable, "-c", code],
+                capture_output=True,
+                text=True,
+                check=True,
+                env={**os.environ, "PYTHONHASHSEED": seed},
+            ).stdout.strip()
+            for seed in ("0", "1", "random")
+        }
+        assert len(runs) == 1, f"preview path varies with the hash seed: {runs}"
+
+    def test_the_path_names_the_voice_and_engine(self):
+        path = core.preview_path("en-GB-SoniaNeural", engine="edge")
+        assert "en-GB-SoniaNeural" in path.name
+        assert path.name.startswith("edge-")
+        assert path.suffix == ".mp3"  # the engine's own container
+
+    def test_it_does_not_write_into_the_working_directory(self):
+        """It used to default to DEFAULT_OUTPUT_FOLDER or ".", dropping sample.mp3
+        wherever you happened to run it."""
+        path = core.preview_path("Kore", engine="gemini")
+        assert path.is_relative_to(Path(tempfile.gettempdir()))
+        assert Path.cwd() not in path.parents
+
+    def test_an_unavailable_engine_is_reported_before_synthesis(self, monkeypatch):
+        engine = FakeEngine()
+        monkeypatch.setattr(
+            engine, "check_available", lambda: (_ for _ in ()).throw(EngineUnavailable("set FAKE_KEY"))
+        )
+        monkeypatch.setattr(core, "get_engine", lambda _name=None: engine)
+        with pytest.raises(EngineUnavailable, match="FAKE_KEY"):
+            core.preview_voice("v", engine="fake")
+        assert engine.calls == 0, "synthesis ran despite the engine being unavailable"
+
+    def test_it_synthesizes_the_shared_sample_text(self, tmp_path, monkeypatch):
+        engine = FakeEngine()
+        monkeypatch.setattr(core, "get_engine", lambda _name=None: engine)
+        out = core.preview_voice("v", engine="fake", output_dir=tmp_path, open_after=False)
+        assert out.exists()
+        assert engine.texts == [core.PREVIEW_TEXT]
+
+    def test_a_speedless_engine_still_gets_the_chosen_speed(self, tmp_path, monkeypatch):
+        """Gemini TTS takes no rate parameter. Previewing at 1.25x must not silently
+        play at 1.0x — ffmpeg applies it, exactly as the assembler does for a book."""
+        engine = FakeEngine()
+        engine.supports_speed = False
+        monkeypatch.setattr(core, "get_engine", lambda _name=None: engine)
+        applied = {}
+
+        def fake_assemble(segments, output_path, fmt=None, speed=None, **kw):
+            applied["speed"] = speed
+            applied["inputs"] = [Path(s) for s in segments]
+            applied["output"] = Path(output_path)
+            Path(output_path).write_bytes(b"joined")
+            return Path(output_path)
+
+        monkeypatch.setattr(core.asm, "assemble", fake_assemble)
+        out = core.preview_voice("v", speed=1.25, engine="fake", output_dir=tmp_path, open_after=False)
+        assert applied["speed"] == 1.25
+        assert engine.speeds == [1.0], "the engine should not also apply the speed"
+        assert out.suffix == ".mp3"
+        # ffmpeg must not read and write the same path: with -y it truncates the output
+        # first, so an engine that already emits .mp3 produced a truncated preview.
+        assert applied["output"] not in applied["inputs"]
+
+    def test_the_staged_file_is_cleaned_up(self, tmp_path, monkeypatch):
+        """An .mp3 engine needing ffmpeg stages its raw output beside the result."""
+        engine = FakeEngine()
+        engine.supports_speed = False
+        engine.audio_suffix = ".mp3"
+        monkeypatch.setattr(core, "get_engine", lambda _name=None: engine)
+        monkeypatch.setattr(
+            core.asm,
+            "assemble",
+            lambda segments, output_path, **kw: (Path(output_path).write_bytes(b"j"), Path(output_path))[1],
+        )
+        out = core.preview_voice("v", speed=1.5, engine="fake", output_dir=tmp_path, open_after=False)
+        assert [p.name for p in tmp_path.iterdir()] == [out.name]
+
+    def test_an_engine_that_can_change_rate_does_it_itself(self, tmp_path, monkeypatch):
+        engine = FakeEngine()  # supports_speed = True
+        monkeypatch.setattr(core, "get_engine", lambda _name=None: engine)
+        monkeypatch.setattr(
+            core.asm, "assemble", lambda *a, **k: pytest.fail("ffmpeg should not be needed")
+        )
+        core.preview_voice("v", speed=1.5, engine="fake", output_dir=tmp_path, open_after=False)
+        assert engine.speeds == [1.5]

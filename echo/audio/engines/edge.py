@@ -8,7 +8,6 @@ is now one engine among several rather than the only one.
 
 from __future__ import annotations
 
-import asyncio
 import logging
 from pathlib import Path
 
@@ -115,9 +114,3 @@ async def list_live_voices() -> list[dict]:
     return await edge_tts.list_voices()
 
 
-def preview(voice: str, speed: float, out_path: Path, text: str = None) -> Path:
-    """Synthesize a short sample synchronously — used by the GUI's preview button."""
-    text = text or "This is a short preview of how this voice will read your book."
-    engine = EdgeEngine()
-    asyncio.run(engine.synthesize(text, voice, speed, out_path))
-    return out_path

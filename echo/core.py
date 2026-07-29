@@ -12,8 +12,10 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+import re
 import subprocess
 import sys
+import tempfile
 import time
 from pathlib import Path
 
@@ -54,21 +56,72 @@ def open_in_default_app(path: Path) -> None:
         subprocess.run(["xdg-open", path], check=False)
 
 
-def play_mp3_clip(voice: str, speed: float = 1, engine: str = None, output_dir: Path = None):
-    """Synthesize a short sample with a voice and open it, to audition it."""
-    output_dir = Path(output_dir) if output_dir else Path(ec.OUTPUT_FOLDER or ".")
-    output_dir.mkdir(parents=True, exist_ok=True)
-    resolved = get_engine(engine)
-    sample_path = output_dir / f"sample{resolved.audio_suffix}"
-    sample_path.unlink(missing_ok=True)
+PREVIEW_TEXT = (
+    "This is a short sample of this voice, at the speed you chose. "
+    "If you like how it sounds, it will read your whole book this way."
+)
 
-    text = (
-        "This is a short sample of this voice. If you like how it sounds, "
-        "it will read your whole book this way."
-    )
-    asyncio.run(resolved.synthesize(text, voice, speed, sample_path))
-    open_in_default_app(sample_path)
-    return sample_path
+
+def preview_path(voice: str, engine: str = None, output_dir: Path = None) -> Path:
+    """Where a preview of ``voice`` is written.
+
+    Deterministic, and stable across runs: the filename is a slug of the engine and
+    voice. It used to be ``abs(hash(voice))``, but Python randomizes string hashing
+    per process, so every launch wrote a new file and nothing was ever reused.
+
+    Defaults to a temp directory rather than the output folder or the cwd — a preview
+    is scratch, and the previous default dropped ``sample.mp3`` wherever you ran it.
+    """
+    resolved = get_engine(engine)
+    slug = re.sub(r"[^A-Za-z0-9._-]+", "-", voice).strip("-") or "voice"
+    directory = Path(output_dir) if output_dir else Path(tempfile.gettempdir()) / "echo-preview"
+    return directory / f"{resolved.name}-{slug}{resolved.audio_suffix}"
+
+
+def preview_voice(
+    voice: str,
+    speed: float = 1.0,
+    engine: str = None,
+    output_dir: Path = None,
+    text: str = None,
+    open_after: bool = True,
+) -> Path:
+    """Synthesize a short sample of ``voice`` and open it, to audition it.
+
+    The one preview implementation. There were three — this, a copy in the GUI worker
+    and a dead edge-only helper — each with different sample text and a different
+    destination.
+
+    ``speed`` is honoured even on engines that cannot vary their own rate: ffmpeg
+    applies it, exactly as the assembler does for a real book. Otherwise a preview of
+    a Gemini voice would play at 1.0x while claiming to be at the chosen speed.
+    """
+    resolved = get_engine(engine)
+    resolved.check_available()  # fail with "set GEMINI_API_KEY", not a stack trace
+
+    out = preview_path(voice, engine, output_dir)
+    out.parent.mkdir(parents=True, exist_ok=True)
+    # Always re-synthesized: a stable name keeps one file per voice rather than
+    # skipping work, so a preview always reflects the current text and speed.
+    out.unlink(missing_ok=True)
+
+    needs_ffmpeg = not resolved.supports_speed and abs(speed - 1.0) > 0.001
+    # Stage the engine's own output separately when ffmpeg has to re-encode it. For an
+    # engine that already emits .mp3, the final path *is* out.with_suffix(".mp3"), so
+    # passing `out` as both input and output had ffmpeg truncating the file it was
+    # reading — which produced a preview about 30% too short rather than an error.
+    raw = out.with_name(f"{out.stem}.raw{resolved.audio_suffix}") if needs_ffmpeg else out
+
+    asyncio.run(resolved.synthesize(text or PREVIEW_TEXT, voice, speed if not needs_ffmpeg else 1.0, raw))
+
+    if needs_ffmpeg:
+        log.info(f"{resolved.label} cannot vary its rate; applying {speed}x with ffmpeg")
+        out = asm.assemble([raw], out.with_suffix(".mp3"), fmt="mp3", speed=speed)
+        raw.unlink(missing_ok=True)
+
+    if open_after:
+        open_in_default_app(out)
+    return out
 
 
 # ─────────────────────────────────────────────────────────────────────────────

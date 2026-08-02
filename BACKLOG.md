@@ -35,8 +35,9 @@ were not in the review at all.
 | Dropdowns given a visible chevron — they had rendered as blank text fields | `37a67ff` |
 | Voice preview consolidated from three implementations into one | `2bc5966` |
 | GUI conversion queue — "Create audiobook" enqueues, jobs drain serially | this commit |
+| Dual theme: Material-teal light + Nord dark, light/dark/system picker, follows the OS live | this commit |
 
-**378 tests** pass with every extra installed; **293** on the lite install (the
+**385 tests** pass with every extra installed; **293** on the lite install (the
 full figure re-measured with the queue work, the lite figure in a throwaway
 virtualenv one session earlier).
 **All four engines are now verified live** against their real services, which was the

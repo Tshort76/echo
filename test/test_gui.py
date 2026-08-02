@@ -371,21 +371,37 @@ class TestDropdownsLookLikeDropdowns:
         return widget.grab().toImage()
 
     @classmethod
-    def _ink(cls, image, x_from, x_to):
-        """Count pixels that differ from the pale field background."""
+    def _ink(cls, image, x_from, x_to, bg=(255, 255, 255)):
+        """Count pixels that differ from the field background ``bg``.
+
+        Parameterized on the background so the same check works for both themes:
+        dark ink on the warm light surface, light ink on the Nord dark surface.
+        """
         scale = image.width() / 240  # devicePixelRatio of the grab
         inset = int(4 * scale)
         count = 0
         for x in range(int(x_from * scale), int(x_to * scale)):
             for y in range(inset, image.height() - inset):
                 colour = QColor(image.pixel(x, y))
-                if 765 - (colour.red() + colour.green() + colour.blue()) > 40:
+                distance = (
+                    abs(colour.red() - bg[0]) + abs(colour.green() - bg[1]) + abs(colour.blue() - bg[2])
+                )
+                if distance > 40:
                     count += 1
         return count
 
+    # The Nord field surface, as an RGB tuple for the ink check.
+    DARK_BG = (0x3B, 0x42, 0x52)
+
     @pytest.fixture
     def themed(self, app):
-        apply_theme(app)
+        apply_theme(app, mode="light")
+        yield
+        app.setStyleSheet("")
+
+    @pytest.fixture
+    def themed_dark(self, app):
+        apply_theme(app, mode="dark")
         yield
         app.setStyleSheet("")
 
@@ -417,6 +433,18 @@ class TestDropdownsLookLikeDropdowns:
         # The chevron sits alone in the well: its ink is far less than glyphs would add.
         assert self._ink(image, 240 - self.WELL + 2, 237) < 120
 
+    def test_the_dark_theme_also_draws_an_indicator(self, themed_dark):
+        """The chevron is painted in the palette's muted color, so a dark theme
+        must produce a *light* indicator on the dark field — not none at all."""
+        combo = QComboBox()
+        combo.addItems(["en-GB-SoniaNeural", "en-US-AriaNeural"])
+        image = self._render(combo)
+        assert self._ink(image, 240 - self.WELL, 237, bg=self.DARK_BG) > 10
+
+    def test_a_dark_line_edit_does_not(self, themed_dark):
+        image = self._render(QLineEdit("en-GB-SoniaNeural"))
+        assert self._ink(image, 240 - self.WELL, 237, bg=self.DARK_BG) == 0
+
     def test_a_missing_asset_falls_back_to_qt_s_own_arrow(self):
         """Half-styling is worse than none: without an image, ``::drop-down`` rules
         would remove the indicator altogether. So they are omitted entirely."""
@@ -426,6 +454,53 @@ class TestDropdownsLookLikeDropdowns:
         first = style.chevron_asset()
         assert first is not None and first.exists()
         assert style.chevron_asset() == first
+
+
+class TestAppearance:
+    """Two palettes, one stylesheet: warm light, Nord dark, or follow the OS."""
+
+    def test_modes_resolve_to_the_right_palette(self, app):
+        assert style.palette_for("light") is style.MATERIAL_LIGHT
+        assert style.palette_for("dark") is style.NORD_DARK
+        # 'system' asks the OS; whatever it says must map to the matching palette.
+        expected = style.NORD_DARK if style.system_scheme(app) == "dark" else style.MATERIAL_LIGHT
+        assert style.palette_for("system", app) is expected
+
+    def test_an_unrecognized_saved_mode_falls_back_to_system(self, monkeypatch):
+        class Junk:
+            def __init__(self, *a):
+                pass
+
+            def value(self, *a, **k):
+                return "banana"
+
+        monkeypatch.setattr(style, "QSettings", Junk)
+        assert style.saved_mode() == "system"
+
+    def test_the_settings_dialog_offers_all_three_modes(self, window):
+        combo = window.convert_tab.settings.appearance
+        assert [combo.itemData(i) for i in range(combo.count())] == ["system", "light", "dark"]
+        assert combo.currentData() == style.saved_mode()
+
+    def test_choosing_dark_restyles_the_running_app(self, app, window, monkeypatch):
+        """The switch must be immediate and persisted — but not persist from a test."""
+        saved = []
+        monkeypatch.setattr(style, "save_mode", saved.append)
+        combo = window.convert_tab.settings.appearance
+        try:
+            combo.setCurrentIndex(combo.findData("dark"))
+            assert saved == ["dark"]
+            assert style.NORD_DARK.bg in app.styleSheet()
+            combo.setCurrentIndex(combo.findData("light"))
+            assert style.MATERIAL_LIGHT.bg in app.styleSheet()
+        finally:
+            app.setStyleSheet("")
+
+    def test_both_palettes_are_complete(self):
+        """Every color the stylesheet interpolates must exist in both palettes —
+        a missing field would raise at theme-switch time, not at startup."""
+        for palette in (style.MATERIAL_LIGHT, style.NORD_DARK):
+            assert style._stylesheet(palette)
 
 
 class TestExtractionControls:

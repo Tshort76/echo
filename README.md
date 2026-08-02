@@ -378,6 +378,10 @@ A cross-platform PySide6 UI with everything the CLI can do:
 - **Nothing fails halfway.** Engines and normalizers that need setup are greyed out
   with the reason attached, so a missing API key or model server is reported before
   a conversion starts rather than an hour into one.
+- **Light and dark themes.** A Material-inspired teal light theme and a
+  [Nord](https://www.nordtheme.com)-based dark theme. The default follows your OS
+  appearance live; pick **Appearance** behind the gear to pin light or dark. The
+  choice persists across launches.
 
 The GUI imports `echo`; the backend never imports the GUI, so the CLI keeps
 working without PySide6 installed.
@@ -555,7 +559,7 @@ pytest                  # works from the repo root or from inside test/
 
 The suite is **tier-aware**: tests that need an optional dependency skip themselves
 rather than fail, so it passes on the lite install as well as a full one (293 tests
-on lite, 378 with every extra). That matters because six tests once quietly assumed
+on lite, 385 with every extra). That matters because six tests once quietly assumed
 `pymupdf4llm` and `google-genai` were present — nothing had ever run them on a
 minimal environment.
 

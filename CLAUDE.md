@@ -148,7 +148,7 @@ gui/
   jobs.py          # ConversionJob/ConversionQueue: the (serial) queue behind "Create audiobook"
   voices.py        # Adapter over echo.audio.engines for the dropdowns
   workers.py       # QThread workers; capture backend logs -> progress bar/log panel
-  style.py         # QSS theme; chevron_asset() paints the combo-box arrow
+  style.py         # QSS theme: warm-light + Nord-dark Palettes, light/dark/system mode
 echo_gui.spec      # PyInstaller config (bundles whichever optional engines are installed)
 packaging/         # build_app.py, fetch_ffmpeg.py, icons/
 test/              # pytest suite; conftest.py anchors demo-data paths on __file__
@@ -405,6 +405,20 @@ live by `changed`). Mid-batch there are no per-job dialogs — results accumulat
 `MainWindow._batch` and one summary appears when the queue drains; a single-job
 batch keeps the original success/error dialogs. A second job writing to the same
 output path is refused up front (`holds_output`), since it would clobber the first.
+
+**Theming: two `Palette`s behind one stylesheet.** `gui/style.py` defines
+`MATERIAL_LIGHT` (cool greys, deep teal accent — the qt-material tradition) and
+`NORD_DARK` (nordtheme.com); both are cool blue-greys, so the two modes read as one
+app in two lights rather than two apps. `_stylesheet(p)`
+interpolates whichever is active — no hex codes live outside the two dataclasses.
+The *appearance mode* (`light` | `dark` | `system`) persists in `QSettings`
+("echo"/"echo", key `appearance`), is chosen from the settings dialog's Appearance
+row (applied immediately via `set_theme_mode`), and `watch_system_theme()` re-themes
+live when the OS flips while in system mode. Two dark-specific traps: Nord's accent
+is *light*, so `on_accent` text is dark there (a hardcoded white-on-accent would
+vanish); and the pixel tests parameterize their ink check on the field background —
+`apply_theme(app, mode="light")` in fixtures, never bare `apply_theme(app)`, which
+reads the developer's own persisted setting and makes tests flaky across machines.
 
 **You can see the UI without a display, and you should.** Qt's offscreen platform
 renders the real widgets, and `QWidget.grab()` returns a `QPixmap` you can save and

@@ -51,6 +51,7 @@ import echo.constants as ec
 from echo.audio.assemble import FORMATS
 from echo.normalize import available_normalizers
 from gui import sources as gs
+from gui import style as gstyle
 from gui import voices as gv
 from gui.jobs import ConversionJob, ConversionQueue
 from gui.style import apply_theme
@@ -370,6 +371,21 @@ class SettingsDialog(QDialog):
         verb_row.addWidget(self.verbosity)
         verb_row.addStretch(1)
 
+        # Appearance: Material-teal light theme, Nord dark theme, or follow the OS.
+        # Applied immediately and persisted (QSettings), so it survives restarts.
+        self.appearance = QComboBox()
+        self.appearance.addItem("Follow system", "system")
+        self.appearance.addItem("Light — Material teal", "light")
+        self.appearance.addItem("Dark — Nord", "dark")
+        idx = self.appearance.findData(gstyle.saved_mode())
+        if idx >= 0:
+            self.appearance.setCurrentIndex(idx)
+        self.appearance.currentIndexChanged.connect(self._apply_appearance)
+        appear_row = QHBoxLayout()
+        appear_row.setContentsMargins(0, 0, 0, 0)
+        appear_row.addWidget(self.appearance)
+        appear_row.addStretch(1)
+
         vis_form = QFormLayout()
         vis_form.setLabelAlignment(Qt.AlignLeft | Qt.AlignVCenter)
         vis_form.setVerticalSpacing(10)
@@ -377,6 +393,7 @@ class SettingsDialog(QDialog):
         vis_form.addRow("", self.write_transcript)
         vis_form.addRow("", self.resume)
         vis_form.addRow("Output verbosity:", verb_row)
+        vis_form.addRow("Appearance:", appear_row)
 
         norm_form = QFormLayout()
         norm_form.setLabelAlignment(Qt.AlignLeft | Qt.AlignVCenter)
@@ -424,6 +441,9 @@ class SettingsDialog(QDialog):
         )
         if path:
             self.cover_edit.setText(path)
+
+    def _apply_appearance(self) -> None:
+        gstyle.set_theme_mode(QApplication.instance(), self.appearance.currentData())
 
 
 class GutenbergDialog(QDialog):
@@ -1472,6 +1492,7 @@ def main() -> int:
     app = QApplication(sys.argv)
     app.setApplicationName("echo")
     apply_theme(app)
+    gstyle.watch_system_theme(app)  # follow live OS light/dark flips in system mode
 
     # Locate ffmpeg up front (bundled with a frozen build, otherwise on PATH) so a
     # missing install is reported before a conversion has run.

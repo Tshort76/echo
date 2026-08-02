@@ -10,10 +10,18 @@ reasoning outlives the checkbox.
 
 ---
 
-## Where we stand — 29 July 2026
+## Where we stand — 2 August 2026
 
 Phases P0–P3 of the review are done, plus several things that were later phases or
 were not in the review at all.
+
+> **⚠️ Fix this first: `gui/jobs.py` is untracked, and HEAD is broken without it.**
+> `7883b05` committed the queue but never `git add`ed its model file, so
+> `gui/app.py:56` and `test/test_gui.py:41` both import `gui.jobs` at HEAD while
+> the file exists only in this working tree. A fresh clone raises `ModuleNotFoundError`
+> on GUI import and fails test collection. It is **not** gitignored — just missed.
+> `git add gui/jobs.py && git commit` clears it. (Verified 2 Aug 2026 with
+> `git check-ignore`, which reports no rule matching it.)
 
 | | Shipped in |
 | --- | --- |
@@ -34,8 +42,9 @@ were not in the review at all.
 | `requirements-local-llm.txt` rename; README and backlog refresh | `bbe13a7` |
 | Dropdowns given a visible chevron — they had rendered as blank text fields | `37a67ff` |
 | Voice preview consolidated from three implementations into one | `2bc5966` |
-| GUI conversion queue — "Create audiobook" enqueues, jobs drain serially | this commit |
-| Dual theme: Material-teal light + Nord dark, light/dark/system picker, follows the OS live | this commit |
+| GUI conversion queue — "Create audiobook" enqueues, jobs drain serially | `7883b05` ⚠️ |
+| Default speed 1.0×, was 1.25× — see §6 | `7883b05` |
+| Dual theme: Material-teal light + Nord dark, light/dark/system picker, follows the OS live | `5338fc6` |
 
 **385 tests** pass with every extra installed; **293** on the lite install (the
 full figure re-measured with the queue work, the lite figure in a throwaway
@@ -52,7 +61,9 @@ Still the highest-value items here, but a much shorter list than when this was w
 
 - [ ] **Convert a full-length book you actually want to listen to.** (S)
       Nothing else substitutes. It's where the real questions surface: do chapter
-      marks land where you expect, is 1.25× right, does the M4B behave in your player.
+      marks land where you expect, does the M4B behave in your player, and — now
+      that the default is 1.0× — is speeding it up in the player as good as baking
+      the speed in.
 - [x] ~~**Check the offscreen GUI smoke test into `test/`.**~~ Done — `test/test_gui.py`.
       It had been living in a throwaway temp directory. Covers the engine dropdown
       against the backend registry, per-engine voice lists, format/suffix syncing,
@@ -165,6 +176,11 @@ to rediscover. All are fixed; the two open consequences follow the table.
 | The voice preview cached its temp file under `abs(hash(voice))`. Python randomizes string hashing per process, so "repeated previews reuse the file" was never true across launches, and each run left another file behind. | `hash()` is not a stable identifier — not across processes, not on disk, not in a URL. Use a slug. |
 | Consolidating the three preview implementations, the ffmpeg speed fallback passed `out` as both input and output — and since `-y` truncates the output before reading, the preview came out ~30% short rather than failing. | The mocked test passed straight through it; a single live run caught it. Same lesson as the Deep Research fake: a test double will not tell you what the real tool does with your arguments. |
 
+| A new module (`gui/jobs.py`) was written, imported by two committed files, covered by 20 passing tests — and never `git add`ed. Every check was green because the tests run against the *working tree*, not against HEAD. | **A green test suite says nothing about what you committed.** Nothing in a normal workflow compares the two. `git status` before declaring done, and treat an untracked `.py` next to a feature commit as a defect, not noise. |
+| A GUI test asserted on `QMessageBox.windowTitle()`. macOS ignores message-box titles, so the getter returned `""` and the test failed for a platform reason unrelated to the behaviour under test. | Assert on content the platform is obliged to render (`text()`, `informativeText()`), not on chrome it is free to drop. |
+| Hoisting every hex code out of the stylesheet into a `Palette` dataclass looked like over-engineering for one theme. Adding a second theme was then ~30 lines, and swapping the light palette entirely (warm paper → Material teal) touched **one** dataclass. | The indirection paid for itself on first reuse. Worth remembering the shape: the stylesheet is a *function of* a palette, so a theme is data, not a code path. |
+| The frozen `Echo.app` cannot read the repo's `.env` — launched from Finder its cwd is `/`, so `load_dotenv()` finds nothing. | Configuration that lives beside the source is invisible to a bundled app. Anything the packaged build needs must come from the real environment or the GUI itself. |
+
 Two open risks from the same work:
 
 - [ ] **The Deep Research agent ids are date-stamped previews** and will age out. (S)
@@ -216,6 +232,19 @@ From the review's phase 5, plus one thing the review asked for that shipped with
       the network sits idle. Starting the next job's synthesis during assembly is
       the only real overlap available, worth maybe 5–10% on a batch. Only bother
       if queues of long books become routine.
+- [ ] **The queue is lost on quit.** (S) `ConversionQueue` is in-memory, so closing
+      the window discards everything still waiting, silently and without a prompt.
+      Two separate fixes: warn on close while jobs remain (cheap, and the more
+      valuable of the two), and/or persist the queue to `QSettings` and offer to
+      resume it. Per-book chunk resume already means a re-queued book doesn't
+      re-synthesize what it finished, so persistence is a convenience rather than a
+      correctness fix.
+- [ ] **A running conversion cannot be cancelled.** (S–M) The queue dialog removes
+      *waiting* jobs, but the job being converted runs to completion — there is no
+      stop button. `ResearchDialog` already has the pattern to copy (a cancel flag
+      the worker checks). Note that `synthesize_script` gathers all chunks, so
+      cancellation lands cleanly only between chunks; the partial chunk directory
+      would survive for resume, which is the right behaviour anyway.
 
 ## 5. Cleanups and smaller fixes
 

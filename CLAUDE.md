@@ -96,8 +96,10 @@ python create_audio.py --list-voices -e gemini
 
 python bulk_generate.py /path/to/books                    # whole folder
 
-# Desktop GUI
+# Desktop GUI — three ways in
 python echo_gui.py                                        # needs requirements-gui.txt
+./echo.sh                                                 # zsh launcher (see below)
+open dist/Echo.app                                        # the frozen build
 
 # Tests (work from the repo root or from inside test/)
 pytest
@@ -107,6 +109,25 @@ pip install -r requirements-build.txt
 python packaging/fetch_ffmpeg.py                          # vendor static ffmpeg -> vendor/
 python packaging/build_app.py                             # -> dist/Echo.app | dist/Echo/
 ```
+
+**`echo.sh` is a local, gitignored launcher** — the owner's convenience script, not
+part of the repo (`.gitignore` names it explicitly). It anchors every path on
+`${0:A:h}`, the script's own directory with symlinks resolved, rather than on the
+caller's cwd, and `cd`s into the repo before launching because `constants.py` reads
+`.env` from the current directory. It runs `.venv/bin/python` directly instead of
+`source`-ing the activate script — equivalent for a single command, less to break.
+Recreate it from this description if it goes missing; don't add it to the repo
+without asking. Two traps it exists to avoid: a relative `python echo_gui.py` only
+works from the repo root, and a bare `echo-ui` on the command line only works if the
+directory is on `PATH`. **Never name such a script plain `echo`** — the shell builtin
+shadows it and it silently does nothing.
+
+**The frozen app cannot read the repo's `.env`.** Launched from Finder its cwd is
+`/`, so `load_dotenv()` finds nothing and every `.env` knob falls back to its
+default. Fine for `edge` (no credentials), but a `GEMINI_API_KEY` has to reach it
+through the real environment (`launchctl setenv`) instead. The GUI's own controls —
+engine, voice, speed, format, appearance — are unaffected; they don't go through
+`.env`.
 
 ## Architecture
 
@@ -493,7 +514,9 @@ correctness pieces:
 decisions already made (macOS-only, M4B default, LLM normalization optional, Cloud
 TTS needs ADC rather than an API key) plus explicit non-goals. **Read it before
 proposing direction changes** — several entries exist specifically to stop settled
-questions being re-opened. Update it when work lands.
+questions being re-opened. Update it when work lands. Its "Where we stand" header
+carries anything urgent and transient — check that first; as of 2 Aug 2026 it flags
+an untracked `gui/jobs.py` that leaves HEAD unimportable.
 
 ## Conventions
 
@@ -503,3 +526,6 @@ questions being re-opened. Update it when work lands.
   `EngineUnavailable`/`ImportError` message naming the install command.
 - Prefer failing loudly with an actionable message over degrading silently. A
   finished audiobook must never be missing content without an error.
+- **`git status` before calling work done.** The suite runs against the working
+  tree, so a green 385-test run says nothing about whether a new module was ever
+  `git add`ed — which is exactly how `gui/jobs.py` shipped a broken HEAD (BACKLOG §2).

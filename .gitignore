@@ -20,3 +20,6 @@ dist/
 vendor/
 .venv-build/
 *.egg-info/
+
+.DS_Store
+echo.sh

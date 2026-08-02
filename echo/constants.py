@@ -50,10 +50,10 @@ OUTPUT_FOLDER = os.environ.get("DEFAULT_OUTPUT_FOLDER", "")
 ##### Synthesis
 DEFAULT_ENGINE = os.environ.get("DEFAULT_ENGINE", "edge")
 DEFAULT_VOICE = os.environ.get("DEFAULT_VOICE", "en-GB-SoniaNeural")
-# Kept at 1.25 for continuity with existing behaviour. Note that speed is baked
-# into the audio by the engine, so 1.0 leaves the file re-usable at any playback
-# speed — worth considering if you keep a library.
-DEFAULT_SPEED = _get_env_float("DEFAULT_SPEED", 1.25)
+# 1.0 on purpose: speed is baked into the audio by the engine, so a neutral
+# default leaves the file re-usable at any playback speed — players can always
+# speed up a 1.0× file, but a 1.25× file is 1.25× forever.
+DEFAULT_SPEED = _get_env_float("DEFAULT_SPEED", 1.0)
 CHUNK_SIZE = _get_env_int("DEFAULT_CHUNK_SIZE", 8000)  # characters
 MAX_THREADS = _get_env_int("DEFAULT_MAX_THREADS", 4)
 #: Attempts per chunk before a synthesis run gives up. Engines fail transiently

@@ -145,6 +145,7 @@ echo_gui.py        # Launcher for the optional desktop GUI
 gui/
   app.py           # PySide6 main window: source split-button, engine/voice/speed/format, settings modal
   sources.py       # SourceSelection: what was chosen, how to describe it, and its name
+  jobs.py          # ConversionJob/ConversionQueue: the (serial) queue behind "Create audiobook"
   voices.py        # Adapter over echo.audio.engines for the dropdowns
   workers.py       # QThread workers; capture backend logs -> progress bar/log panel
   style.py         # QSS theme; chevron_asset() paints the combo-box arrow
@@ -391,6 +392,19 @@ handler to forward backend log lines to the UI and parse the progress string. Th
 engine and normalizer dropdowns are built from `available_engines()` /
 `available_normalizers()`, so choices needing setup are disabled with the reason in
 their tooltip, and `ConvertTab.gather()` refuses to start a conversion on one.
+
+**"Create audiobook" enqueues; the window drains one job at a time.** The model is
+`gui/jobs.py` (`ConversionQueue`, pure state + a `changed` signal); the button stays
+enabled while a job runs so the next click queues another book. Serial is a
+decision, not a limitation — see BACKLOG §6: within a book the synthesizer already
+saturates `engine.max_concurrency`, so parallel books would double connections
+against the same endpoint, not throughput. The status line describes only the
+current job; the count of waiting jobs lives on the `≡` button beside the play
+button, which opens `QueueDialog` (now-converting + removable waiting list, kept
+live by `changed`). Mid-batch there are no per-job dialogs — results accumulate in
+`MainWindow._batch` and one summary appears when the queue drains; a single-job
+batch keeps the original success/error dialogs. A second job writing to the same
+output path is refused up front (`holds_output`), since it would clobber the first.
 
 **You can see the UI without a display, and you should.** Qt's offscreen platform
 renders the real widgets, and `QWidget.grab()` returns a `QPixmap` you can save and

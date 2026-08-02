@@ -37,7 +37,8 @@ from PySide6.QtWidgets import (  # noqa: E402
 
 import echo.core as core  # noqa: E402
 import gui.style as style  # noqa: E402
-from gui.app import GutenbergDialog, MainWindow, ResearchDialog  # noqa: E402
+from gui.app import GutenbergDialog, MainWindow, QueueDialog, ResearchDialog  # noqa: E402
+from gui.jobs import ConversionJob, ConversionQueue  # noqa: E402
 from gui.style import apply_theme  # noqa: E402
 from gui.sources import SourceSelection, slugify  # noqa: E402
 from gui.workers import ConversionWorker  # noqa: E402
@@ -501,6 +502,218 @@ class TestNormalizerControl:
         s.normalizer.setCurrentIndex(s.normalizer.findData(broken))
         with pytest.raises(ValueError, match="normalization is not available"):
             tab.gather()
+
+
+class TestQueueModel:
+    def test_jobs_wait_in_order_and_promote_to_current(self, app):
+        q = ConversionQueue()
+        a = ConversionJob(name="a", params={"output_path": "/tmp/a.m4b"})
+        b = ConversionJob(name="b", params={"output_path": "/tmp/b.m4b"})
+        q.add(a)
+        q.add(b)
+        assert len(q) == 2 and q.current is None
+        assert q.pop_next() is a
+        assert q.current is a and len(q) == 1
+        q.finish_current()
+        assert q.current is None and q.pop_next() is b
+
+    def test_every_mutation_announces_itself(self, app):
+        """The queue button's count and an open dialog both hang off ``changed``."""
+        q = ConversionQueue()
+        seen = []
+        q.changed.connect(lambda: seen.append(1))
+        q.add(ConversionJob(name="a"))
+        q.pop_next()
+        q.finish_current()
+        assert len(seen) == 3
+
+    def test_popping_an_empty_queue_is_quiet(self, app):
+        q = ConversionQueue()
+        seen = []
+        q.changed.connect(lambda: seen.append(1))
+        assert q.pop_next() is None
+        assert seen == []
+
+    def test_a_running_jobs_output_still_counts_as_held(self, app):
+        """The duplicate guard must cover the job being converted, not just the line."""
+        q = ConversionQueue()
+        q.add(ConversionJob(name="a", params={"output_path": "/tmp/a.m4b"}))
+        q.pop_next()
+        assert q.holds_output("/tmp/a.m4b")
+        assert not q.holds_output("/tmp/b.m4b")
+
+    def test_remove_and_clear_touch_only_the_waiting_jobs(self, app):
+        q = ConversionQueue()
+        q.add(ConversionJob(name="a"))
+        q.pop_next()
+        q.add(ConversionJob(name="b"))
+        q.add(ConversionJob(name="c"))
+        q.remove(0)
+        assert [j.name for j in q.pending] == ["c"]
+        q.clear_pending()
+        assert len(q) == 0 and q.current.name == "a"
+
+    def test_the_detail_line_says_what_will_be_made(self):
+        job = ConversionJob(
+            name="meditations",
+            params={"output_path": "/tmp/m.m4b", "engine": "edge", "voice": "en-GB-SoniaNeural", "fmt": "m4b"},
+        )
+        assert job.detail == "edge · en-GB-SoniaNeural · M4B → /tmp/m.m4b"
+
+
+class _NullSignal:
+    def connect(self, _fn):
+        pass
+
+
+class TestQueueFlow:
+    """Clicking "Create audiobook" enqueues; the window drains one job at a time."""
+
+    @pytest.fixture
+    def workers(self, monkeypatch):
+        """Replace ConversionWorker with an inert fake; returns the created list."""
+        import gui.app as app_module
+
+        created = []
+
+        class FakeWorker:
+            def __init__(self, **params):
+                self.params = params
+                self.started = False
+                self.message = self.progress = self.succeeded = self.failed = self.finished = _NullSignal()
+                created.append(self)
+
+            def start(self):
+                self.started = True
+
+        monkeypatch.setattr(app_module, "ConversionWorker", FakeWorker)
+        return created
+
+    @staticmethod
+    def convert(window, book, output_name: str) -> None:
+        tab = window.convert_tab
+        select_engine(tab, "edge")
+        select_file(tab, book)
+        tab.output_edit.setText(str(book.parent / output_name))
+        window._on_convert()
+
+    def test_the_first_job_starts_immediately(self, window, book, workers):
+        self.convert(window, book, "one.m4b")
+        assert len(workers) == 1 and workers[0].started
+        assert window.queue.current.name == "a_book"
+        assert len(window.queue) == 0
+        # The button stays enabled: clicking it now queues the next book.
+        assert window.convert_tab.convert_btn.isEnabled()
+
+    def test_a_second_click_waits_in_the_queue(self, window, book, workers):
+        self.convert(window, book, "one.m4b")
+        self.convert(window, book, "two.m4b")
+        assert len(workers) == 1  # still only the first conversion running
+        assert len(window.queue) == 1
+        assert window.queue_btn.text() == "≡ 1"
+
+    def test_a_duplicate_output_is_refused(self, window, book, workers, monkeypatch):
+        told = []
+        monkeypatch.setattr(
+            "PySide6.QtWidgets.QMessageBox.information", lambda *a, **k: told.append(a)
+        )
+        self.convert(window, book, "one.m4b")
+        self.convert(window, book, "one.m4b")
+        assert len(workers) == 1 and len(window.queue) == 0
+        assert told, "the second click should explain why nothing was queued"
+
+    def test_the_next_job_starts_when_one_finishes(self, window, book, workers):
+        self.convert(window, book, "one.m4b")
+        self.convert(window, book, "two.m4b")
+        window._on_job_success(str(book.parent / "one.m4b"))
+        window._on_worker_finished()
+        assert len(workers) == 2 and workers[1].started
+        assert len(window.queue) == 0
+        assert window.queue.current is not None
+        assert window.play_btn.isEnabled()
+
+    def test_the_batch_reports_once_at_the_end(self, window, book, workers, monkeypatch):
+        from PySide6.QtWidgets import QMessageBox
+
+        shown = []
+        # macOS ignores a QMessageBox's window title, so capture its text.
+        monkeypatch.setattr(QMessageBox, "exec", lambda self: shown.append(self.text()) or 0)
+        self.convert(window, book, "one.m4b")
+        self.convert(window, book, "two.m4b")
+
+        window._on_job_success(str(book.parent / "one.m4b"))
+        window._on_worker_finished()
+        assert shown == []  # no per-job dialog while the queue still has work
+
+        window._on_job_failure("engine exploded")
+        window._on_worker_finished()
+        assert shown == ["1 of 2 audiobooks created."]
+        assert window._batch == []
+        assert "1 of 2" in window.status.text()
+
+    def test_a_single_job_keeps_the_success_dialog(self, window, book, workers, monkeypatch):
+        opened = []
+        monkeypatch.setattr(window, "_show_created", opened.append)
+        self.convert(window, book, "one.m4b")
+        window._on_job_success(str(book.parent / "one.m4b"))
+        window._on_worker_finished()
+        assert opened == [str(book.parent / "one.m4b")]
+
+
+class TestQueueDialog:
+    @staticmethod
+    def loaded_queue(n: int = 2) -> ConversionQueue:
+        q = ConversionQueue()
+        for name in ("alpha", "beta", "gamma")[:n]:
+            q.add(ConversionJob(name=name, params={"output_path": f"/tmp/{name}.m4b", "engine": "edge"}))
+        return q
+
+    def test_it_lists_the_waiting_jobs_in_order(self, app):
+        dialog = QueueDialog(self.loaded_queue())
+        assert dialog.pending_list.count() == 2
+        assert dialog.pending_list.item(0).text() == "1. alpha"
+        assert "Nothing is converting" in dialog.current_label.text()
+
+    def test_it_shows_the_running_job(self, app):
+        q = self.loaded_queue()
+        q.pop_next()
+        dialog = QueueDialog(q)
+        assert "alpha" in dialog.current_label.text()
+        assert dialog.pending_list.count() == 1
+
+    def test_it_follows_the_queue_live(self, app):
+        """Jobs finish and start while the dialog is open; it must not go stale."""
+        q = self.loaded_queue()
+        dialog = QueueDialog(q)
+        q.pop_next()
+        assert "alpha" in dialog.current_label.text()
+        assert dialog.pending_list.count() == 1
+
+    def test_removing_a_selected_job(self, app):
+        q = self.loaded_queue()
+        dialog = QueueDialog(q)
+        dialog.pending_list.setCurrentRow(0)
+        dialog._remove_selected()
+        assert [j.name for j in q.pending] == ["beta"]
+        assert dialog.pending_list.count() == 1
+
+    def test_the_remove_button_needs_a_selection(self, app):
+        dialog = QueueDialog(self.loaded_queue())
+        assert dialog.remove_btn.isEnabled() is False
+        dialog.pending_list.setCurrentRow(1)
+        assert dialog.remove_btn.isEnabled() is True
+
+
+class TestQueueButton:
+    def test_it_sits_ready_and_empty(self, window):
+        assert window.queue_btn.text() == "≡"
+        assert "empty" in window.queue_btn.toolTip()
+
+    def test_it_counts_the_waiting_jobs(self, window):
+        window.queue.add(ConversionJob(name="a"))
+        window.queue.add(ConversionJob(name="b"))
+        assert window.queue_btn.text() == "≡ 2"
+        assert "2 waiting" in window.queue_btn.toolTip()
 
 
 class TestResearchDialog:

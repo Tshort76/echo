@@ -33,10 +33,12 @@ were not in the review at all.
 | Lite, model-free install tier — 100 MB, no ML runtime | `a3cd780` |
 | `requirements-local-llm.txt` rename; README and backlog refresh | `bbe13a7` |
 | Dropdowns given a visible chevron — they had rendered as blank text fields | `37a67ff` |
-| Voice preview consolidated from three implementations into one | this commit |
+| Voice preview consolidated from three implementations into one | `2bc5966` |
+| GUI conversion queue — "Create audiobook" enqueues, jobs drain serially | this commit |
 
-**359 tests** pass with every extra installed; **293** on the lite install (both
-measured this session, the lite figure in a throwaway virtualenv).
+**378 tests** pass with every extra installed; **293** on the lite install (the
+full figure re-measured with the queue work, the lite figure in a throwaway
+virtualenv one session earlier).
 **All four engines are now verified live** against their real services, which was the
 biggest open risk when this file was written. `edge` is exercised end-to-end on
 markdown, PDF, EPUB, two real Gutenberg books and a Deep Research report.
@@ -78,8 +80,11 @@ Still the highest-value items here, but a much shorter list than when this was w
       correctly excluded since it wasn't in the build venv.
       **Note:** they live *inside* the archive, not as directories on disk — check
       the PYZ, not the filesystem, when verifying a future build.
-      **Now stale:** that build predates Deep Research, the source picker and the
-      lite tier, so it is three features behind.
+      ~~**Now stale:** that build predates Deep Research, the source picker and the
+      lite tier, so it is three features behind.~~ **Rebuilt 2 Aug 2026** from
+      current source (queue included): 563 MB, all three optional engine stacks +
+      ffmpeg bundled, launches and holds its event loop offscreen. Only *boot* is
+      verified — see the mlx-bundle item below for what isn't.
 - [x] ~~**Exercise the OCR path.**~~ Works. Tesseract 5.5.3 turns out to be installed
       on this machine already, so no `brew install` was needed:
       `resources/demo_data/ocr_3_pages.pdf` OCRs all three pages to 7,294 characters
@@ -102,12 +107,17 @@ Still the highest-value items here, but a much shorter list than when this was w
       **Cheaper than it looks:** `python3 -m venv` + `pip install -r requirements.txt
       pytest` in a throwaway directory took about a minute, and the lite suite runs in
       16 s. The manual version is two commands — worth wrapping rather than repeating.
-- [ ] **Build an app bundle with `mlx-audio` included.** (M) `.venv-build` now has the
-      full local stack installed and Kokoro working, so `python packaging/build_app.py`
-      would bundle mlx automatically — the spec probes installed packages. Still the
-      riskiest bundling job: mlx, transformers and spaCy bring hidden imports and data
-      files, and `espeakng-loader`'s dylib plus spaCy's `en_core_web_sm` model are data
-      that PyInstaller will not find by static analysis. Expect to add `datas` entries.
+- [ ] **Verify `mlx-audio` inside the frozen app.** (M) Half done: the 2 Aug 2026
+      rebuild *bundles* the mlx stack (the spec probes installed packages, and
+      `.venv-build` now has it) and the app boots — but nobody has synthesized with
+      the mlx engine *from the frozen app*. The original risk stands: mlx,
+      transformers and spaCy bring data files, and `espeakng-loader`'s dylib plus
+      spaCy's `en_core_web_sm` model are things PyInstaller will not find by static
+      analysis. Expected failure mode is graceful (`check_available()` exercises the
+      whole phonemizer chain, so the engine should grey out with a reason rather
+      than die mid-book) — but "should" is the word doing the work. Launch the app,
+      read the mlx engine's tooltip, and run a short book on it. Expect to add
+      `datas` entries to `echo_gui.spec`.
 - [ ] **A round-trip integrity test: text → speech → text.** (M) The one thing no
       current test does is check that the audio actually *contains the words*.
       Everything else verifies plumbing — chunk counts, durations, chapter marks —
@@ -199,6 +209,12 @@ From the review's phase 5, plus one thing the review asked for that shipped with
       jargon are where narration most often goes wrong.
 - [ ] **GUI library view** over past conversions. (M)
 - [ ] **Two-narrator / dialogue output** via VibeVoice or similar. (L)
+- [ ] **Overlap assembly with the next queued book's synthesis.** (S–M) The queue
+      is deliberately serial (parallel books just multiply pressure on the same
+      TTS endpoint — see §6), but while a finished book's M4B re-encodes to AAC
+      the network sits idle. Starting the next job's synthesis during assembly is
+      the only real overlap available, worth maybe 5–10% on a batch. Only bother
+      if queues of long books become routine.
 
 ## 5. Cleanups and smaller fixes
 
@@ -233,9 +249,11 @@ From the review's phase 5, plus one thing the review asked for that shipped with
       its contents, and the `local` text normalizer needs nothing from it (it speaks
       HTTP to a server you run). The file header now says so. Rename again or leave
       it, but decide rather than drift.
-- [ ] **Decide the default speed.** (S) `DEFAULT_SPEED=1.25` is baked into the audio
-      by the engine. 1.0 leaves the file re-usable at any playback speed, which
-      matters if you keep a library. Left unchanged to avoid surprising you.
+- [x] ~~**Decide the default speed.**~~ Decided 2 Aug 2026: `DEFAULT_SPEED=1.0`.
+      Speed is baked into the audio by the engine, so a neutral default keeps the
+      file re-usable at any playback speed — players can speed a 1.0× file up, but
+      a 1.25× file is 1.25× forever. Override per-run with `-s` or per-machine in
+      `.env`.
 - [ ] **`--transcript` is a no-op on three of four engines.** (S) Only `edge` reports
       word timings. The GUI checkbox now says so in its tooltip and the backend logs
       it, but the CLI still accepts the flag silently. Consider warning up front when
@@ -296,6 +314,13 @@ Recorded so they don't get re-litigated. Change them deliberately, not by drift.
   read-only *description* of the choice, not the choice itself. This is why
   `SourceSelection.name` exists — research has no filename to derive an output name
   from.
+- **The conversion queue is serial, not parallel.** Within one book the
+  synthesizer already keeps `engine.max_concurrency` requests in flight, so a
+  second simultaneous book doubles the connection count against the same
+  endpoint — identical to raising `DEFAULT_MAX_THREADS`, minus the coordination.
+  edge-tts already throws transient 403s at the default concurrency; more
+  in-flight requests buy retries, not throughput. The honest speed knob is
+  `DEFAULT_MAX_THREADS`, and the only real overlap is assembly-vs-synthesis (§4).
 
 ## 7. Non-goals
 

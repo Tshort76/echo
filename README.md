@@ -27,7 +27,9 @@ python create_audio.py --research "the history of the marine chronometer" --name
   weights; local synthesis is a tier you opt into.
 - **Safe to leave running.** Every chunk is retried, and an interrupted run
   resumes from the chunks already on disk instead of starting the book again.
-- **CLI or desktop app.** The GUI is an optional layer; the CLI never depends on it.
+- **CLI or desktop app.** The GUI is an optional layer; the CLI never depends on
+  it. Both convert books back to back: the app has a conversion queue, the CLI a
+  folder-at-a-time script.
 
 # Installation
 
@@ -100,7 +102,7 @@ WRITE_TRANSCRIPT="false"        # also write .srt when the engine reports timing
 # Synthesis
 DEFAULT_ENGINE="edge"           # edge | gemini | google-cloud | mlx
 DEFAULT_VOICE="en-GB-SoniaNeural"
-DEFAULT_SPEED="1.25"            # baked into the audio; 1.0 keeps the file re-usable
+DEFAULT_SPEED="1.0"             # baked into the audio; 1.0 keeps the file re-usable
 DEFAULT_CHUNK_SIZE="8000"       # characters per request, capped by the engine's own limit
 DEFAULT_MAX_THREADS="4"
 DEFAULT_MAX_RETRIES="3"
@@ -362,6 +364,14 @@ A cross-platform PySide6 UI with everything the CLI can do:
   asked about.
 - **Main form** — that source, then engine, voice with language/gender filters and
   a preview button, speed, output format, output path.
+- **A conversion queue.** While a book converts, **Create audiobook** stays live —
+  pick the next source and click again to queue it. Books convert one after
+  another (deliberately: one book already uses the engine's full concurrency, so
+  parallel books would add contention, not speed). The status line follows the
+  current job; the **≡** button beside it counts what's waiting and opens the
+  queue — what's converting now, what's next, remove or clear the rest. One
+  summary appears when the queue finishes, and a failed book doesn't stop the
+  ones behind it.
 - **Behind the gear** — metadata and cover art; extraction options (PDF page range,
   force OCR, Docling); text normalization; save-text, transcript, resume and
   verbosity.
@@ -545,7 +555,7 @@ pytest                  # works from the repo root or from inside test/
 
 The suite is **tier-aware**: tests that need an optional dependency skip themselves
 rather than fail, so it passes on the lite install as well as a full one (293 tests
-on lite, 359 with every extra). That matters because six tests once quietly assumed
+on lite, 378 with every extra). That matters because six tests once quietly assumed
 `pymupdf4llm` and `google-genai` were present — nothing had ever run them on a
 minimal environment.
 

@@ -52,6 +52,7 @@ from echo.audio.assemble import FORMATS
 from echo.normalize import available_normalizers
 from gui import sources as gs
 from gui import voices as gv
+from gui.jobs import ConversionJob, ConversionQueue
 from gui.style import apply_theme
 from gui.workers import (
     ConversionWorker,
@@ -100,7 +101,7 @@ class SpeedControl(QWidget):
 
     _MIN, _MAX, _STEP = 0.5, 3.0, 0.05
 
-    def __init__(self, initial: float = 1.25, parent=None):
+    def __init__(self, initial: float = 1.0, parent=None):
         super().__init__(parent)
         self._slider = QSlider(Qt.Horizontal)
         # Slider works in integer "hundredths" so 0.05 steps map cleanly.
@@ -762,6 +763,88 @@ class ResearchDialog(QDialog):
         QMessageBox.warning(self, "Deep Research", message)
 
 
+class QueueDialog(QDialog):
+    """What is converting now, and what waits behind it.
+
+    Bound to a :class:`~gui.jobs.ConversionQueue` and refreshed on its
+    ``changed`` signal, so the list stays live while jobs finish and start
+    behind the (modal) dialog.
+    """
+
+    def __init__(self, queue: ConversionQueue, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Conversion queue")
+        self.setModal(True)
+        self.setMinimumSize(520, 360)
+        self._queue = queue
+
+        self.current_label = QLabel()
+        self.current_label.setWordWrap(True)
+
+        self.pending_list = QListWidget()
+        self.pending_list.setAlternatingRowColors(True)
+        self.pending_list.setWordWrap(True)
+        self.pending_list.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.pending_list.itemSelectionChanged.connect(self._sync_buttons)
+
+        self.remove_btn = QPushButton("Remove selected")
+        self.remove_btn.clicked.connect(self._remove_selected)
+        self.clear_btn = QPushButton("Clear queue")
+        self.clear_btn.clicked.connect(self._queue.clear_pending)
+        close_btn = QPushButton("Close")
+        close_btn.setObjectName("primary")
+        close_btn.setDefault(True)
+        close_btn.clicked.connect(self.accept)
+
+        buttons = QHBoxLayout()
+        buttons.addWidget(self.remove_btn)
+        buttons.addWidget(self.clear_btn)
+        buttons.addStretch(1)
+        buttons.addWidget(close_btn)
+
+        now_heading = QLabel("Now converting")
+        now_heading.setObjectName("sectionHeading")
+        self.waiting_heading = QLabel("Waiting")
+        self.waiting_heading.setObjectName("sectionHeading")
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(18, 18, 18, 18)
+        layout.setSpacing(10)
+        layout.addWidget(now_heading)
+        layout.addWidget(self.current_label)
+        layout.addWidget(self.waiting_heading)
+        layout.addWidget(self.pending_list, 1)
+        layout.addLayout(buttons)
+
+        self._queue.changed.connect(self._refresh)
+        self._refresh()
+
+    def _refresh(self) -> None:
+        current = self._queue.current
+        if current is not None:
+            self.current_label.setText(f"{current.name}\n{current.detail}")
+        else:
+            self.current_label.setText("Nothing is converting.")
+
+        pending = self._queue.pending
+        self.waiting_heading.setText(f"Waiting ({len(pending)})" if pending else "Waiting")
+        self.pending_list.clear()
+        for i, job in enumerate(pending, start=1):
+            item = QListWidgetItem(f"{i}. {job.name}")
+            item.setToolTip(job.detail)
+            self.pending_list.addItem(item)
+        self._sync_buttons()
+
+    def _sync_buttons(self) -> None:
+        self.remove_btn.setEnabled(self.pending_list.currentRow() >= 0)
+        self.clear_btn.setEnabled(len(self._queue) > 0)
+
+    def _remove_selected(self) -> None:
+        row = self.pending_list.currentRow()
+        if row >= 0:
+            self._queue.remove(row)
+
+
 class FitScrollArea(QScrollArea):
     """A scroll area whose size hint tracks its content.
 
@@ -944,6 +1027,10 @@ class ConvertTab(QWidget):
             return
         self._set_source(gs.SourceSelection.from_file(path))
 
+    def source_name(self) -> str:
+        """The chosen source's display name — labels its job in the queue."""
+        return self._source.name if self._source else ""
+
     def current_engine(self) -> str:
         return self.engine_combo.currentData() or ec.DEFAULT_ENGINE
 
@@ -1093,6 +1180,10 @@ class MainWindow(QMainWindow):
         self.setMinimumSize(600, 460)
         self._worker = None  # keep a reference so the QThread isn't GC'd mid-run
         self._last_output = None  # most recent generated file, for the play button
+        self.queue = ConversionQueue(self)
+        self.queue.changed.connect(self._sync_queue_button)
+        # Results of the batch being drained, reported once when the queue empties.
+        self._batch: list[tuple[ConversionJob, bool, str]] = []
 
         self.convert_tab = ConvertTab()
         # Wrap in a scroll area so a small window scrolls rather than compressing
@@ -1140,9 +1231,20 @@ class MainWindow(QMainWindow):
         self.gear.setToolTip("Conversion settings")
         self.gear.clicked.connect(self.convert_tab.open_settings)
 
+        # Queue button: a count of what's waiting; clicking shows the details.
+        self.queue_btn = QToolButton()
+        self.queue_btn.setObjectName("iconbtn")
+        self.queue_btn.setToolButtonStyle(Qt.ToolButtonTextOnly)
+        self.queue_btn.setFixedHeight(34)
+        self.queue_btn.setMinimumWidth(40)
+        self.queue_btn.setCursor(Qt.PointingHandCursor)
+        self.queue_btn.clicked.connect(self._show_queue)
+        self._sync_queue_button()
+
         status_row = QHBoxLayout()
         status_row.setSpacing(8)
         status_row.addWidget(status_bar, 1)
+        status_row.addWidget(self.queue_btn)
         status_row.addWidget(self.play_btn)
         status_row.addWidget(self.gear)
 
@@ -1201,8 +1303,11 @@ class MainWindow(QMainWindow):
         self.progress.setValue(pct)
 
     def _busy(self, running: bool, status: str = "") -> None:
-        """Toggle UI enabled state and show the progress bar only while running."""
-        self.convert_tab.convert_btn.setEnabled(not running)
+        """Toggle UI enabled state and show the progress bar only while running.
+
+        The convert button stays enabled on purpose: while a job runs, clicking
+        it queues the next one.
+        """
         self.convert_tab.voice_picker.preview_btn.setEnabled(not running)
         self.progress.setVisible(running)
         if running:
@@ -1211,12 +1316,13 @@ class MainWindow(QMainWindow):
             self.status.setText(status)
 
     def _start(self, worker, start_status: str) -> None:
+        """Run a one-off worker (a preview) that isn't part of the queue."""
         self._worker = worker
         worker.message.connect(self._append_log)
         worker.progress.connect(self._on_progress)
         worker.succeeded.connect(self._on_success)
         worker.failed.connect(self._on_failure)
-        worker.finished.connect(lambda: setattr(self, "_worker", None))
+        worker.finished.connect(self._on_worker_finished)
         self.log_view.clear()
         self.status.setText(start_status)
         self._busy(True)
@@ -1232,6 +1338,9 @@ class MainWindow(QMainWindow):
         self._busy(False, f"Done → {path}")
         self._last_output = path
         self.play_btn.setEnabled(True)
+        self._show_created(path)
+
+    def _show_created(self, path: str) -> None:
         box = QMessageBox(self)
         box.setIcon(QMessageBox.Information)
         box.setWindowTitle("Success")
@@ -1248,6 +1357,87 @@ class MainWindow(QMainWindow):
         self.status.setText("Failed.")
         QMessageBox.critical(self, "Error", message)
 
+    # -- the queue ----------------------------------------------------------- #
+    def _sync_queue_button(self) -> None:
+        waiting = len(self.queue)
+        self.queue_btn.setText(f"≡ {waiting}" if waiting else "≡")
+        noun = f"{waiting} waiting" if waiting else "empty"
+        self.queue_btn.setToolTip(f"Conversion queue — {noun}")
+
+    def _show_queue(self) -> None:
+        QueueDialog(self.queue, self).exec()
+
+    def _maybe_start_next(self) -> None:
+        if self._worker is not None:
+            return
+        job = self.queue.pop_next()
+        if job is not None:
+            self._start_conversion(job)
+
+    def _start_conversion(self, job: ConversionJob) -> None:
+        worker = ConversionWorker(**job.params)
+        self._worker = worker
+        worker.message.connect(self._append_log)
+        worker.progress.connect(self._on_progress)
+        worker.succeeded.connect(self._on_job_success)
+        worker.failed.connect(self._on_job_failure)
+        worker.finished.connect(self._on_worker_finished)
+        if self._batch:
+            self._append_log(f"— {job.name} —")
+        else:
+            self.log_view.clear()  # first job of a fresh batch
+        self.status.setText(f"Converting {job.name}…")
+        self._busy(True)
+        worker.start()
+
+    def _on_job_success(self, path: str) -> None:
+        self._batch.append((self.queue.current, True, path))
+        self._last_output = path
+        self.play_btn.setEnabled(True)
+        self.status.setText(f"Done → {path}")
+
+    def _on_job_failure(self, message: str) -> None:
+        job = self.queue.current
+        self._batch.append((job, False, message))
+        self.status.setText(f"Failed: {job.name}" if job else "Failed.")
+
+    def _on_worker_finished(self) -> None:
+        """One worker ended (conversion or preview): advance the queue."""
+        self._worker = None
+        if self.queue.current is not None:
+            self.queue.finish_current()
+        job = self.queue.pop_next()
+        if job is not None:
+            self._start_conversion(job)
+            return
+        if self._batch:
+            self._busy(False)
+            self._finish_batch()
+
+    def _finish_batch(self) -> None:
+        """Report the drained queue: one dialog for the batch, not one per book."""
+        results, self._batch = self._batch, []
+        if len(results) == 1:
+            job, ok, payload = results[0]
+            if ok:
+                self._show_created(payload)
+            else:
+                QMessageBox.critical(self, "Error", payload)
+            return
+
+        failures = [r for r in results if not r[1]]
+        lines = [
+            f"✓ {job.name} → {payload}" if ok else f"✗ {job.name}: {payload}"
+            for job, ok, payload in results
+        ]
+        self.status.setText(f"Queue finished — {len(results) - len(failures)} of {len(results)} succeeded.")
+        box = QMessageBox(self)
+        box.setIcon(QMessageBox.Warning if failures else QMessageBox.Information)
+        box.setWindowTitle("Queue finished")
+        box.setText(f"{len(results) - len(failures)} of {len(results)} audiobooks created.")
+        box.setInformativeText("\n".join(lines))
+        box.exec()
+
     # -- actions ----------------------------------------------------------- #
     def _on_convert(self) -> None:
         try:
@@ -1255,7 +1445,19 @@ class MainWindow(QMainWindow):
         except ValueError as exc:
             QMessageBox.warning(self, "Missing information", str(exc))
             return
-        self._start(ConversionWorker(**params), "Converting…")
+        if self.queue.holds_output(params["output_path"]):
+            QMessageBox.information(
+                self,
+                "Already queued",
+                f"A queued conversion already writes to:\n{params['output_path']}\n\n"
+                "Change the output file to queue this again.",
+            )
+            return
+        job = ConversionJob(name=self.convert_tab.source_name(), params=params)
+        self.queue.add(job)
+        if self._worker is not None:
+            self._append_log(f"Queued: {job.name} ({len(self.queue)} waiting)")
+        self._maybe_start_next()
 
     def _preview(self, picker: VoicePicker, speed: SpeedControl) -> None:
         voice = picker.current_voice()

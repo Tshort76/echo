@@ -22,8 +22,11 @@ Open follow-ups from the split:
 
 - [ ] **Tag `v0.3.0` and push it**, so weekly-news can depend on
       `echo-tts @ git+…@v0.3.0`. (S)
-- [ ] **Piper as an engine?** weekly-news uses it today as a fallback. Whether echo
-      adds it or weekly-news drops it is still open. (M)
+- [x] ~~**Piper as an engine?**~~ Added as `--engine piper`. It is the only local
+      engine that runs on Python 3.14 and off Apple Silicon, at RTF 0.027 on the
+      CPU, so weekly-news's fallback moves into echo. Not yet exercised in a frozen
+      build: the spec runs `collect_all("piper")` for its espeak data and native
+      bridge, but no build has been made with it.
 - [ ] **The frozen app could drop its vendored ffmpeg** in favour of the
       `imageio-ffmpeg` binary. The spec currently excludes that binary when a
       vendored one exists, so nothing is bundled twice. The switch would remove

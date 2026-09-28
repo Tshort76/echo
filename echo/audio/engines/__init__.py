@@ -59,11 +59,18 @@ def _mlx() -> SpeechEngine:
     return MlxEngine()
 
 
+def _piper() -> SpeechEngine:
+    from echo.audio.engines.piper import PiperEngine
+
+    return PiperEngine()
+
+
 _ENGINES: dict[str, Callable[[], SpeechEngine]] = {
     "edge": _edge,
     "gemini": _gemini,
     "google-cloud": _google_cloud,
     "mlx": _mlx,
+    "piper": _piper,
 }
 
 #: Friendly aliases, so `--engine google` and `--engine kokoro` do the obvious thing.
@@ -75,6 +82,8 @@ _ALIASES = {
     "kokoro": "mlx",
     "mlx-audio": "mlx",
     "edge-tts": "edge",
+    "piper-tts": "piper",
+    "offline": "piper",
 }
 
 _cache: dict[str, SpeechEngine] = {}

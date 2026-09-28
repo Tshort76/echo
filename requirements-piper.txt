@@ -1,0 +1,8 @@
+# Offline synthesis with Piper: any OS, any supported Python (3.14 included), CPU
+# only. Adds onnxruntime and a bundled espeak-ng, ~180 MB. Each voice is a ~60 MB
+# download on first use, cached in ~/.cache/echo/piper (PIPER_VOICE_DIR).
+#
+#     pip install -r requirements-piper.txt
+#     python create_audio.py book.epub -e piper -v en_GB-alan-medium
+-r requirements.txt
+piper-tts==1.8.0

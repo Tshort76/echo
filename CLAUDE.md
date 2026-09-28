@@ -148,6 +148,7 @@ echo/              # THE LIBRARY — `from echo import speak_chapters`. Never im
       edge.py      # edge-tts (default); rate-string conversion; WordBoundary timings
       google.py    # GeminiEngine (API key) + GoogleCloudEngine (ADC, free tier)
       mlx.py       # mlx-audio on Apple Silicon; Kokoro voice decoding + espeak wiring
+      piper.py     # Piper (ONNX, CPU): offline on any OS/Python; voices fetched on first use
     tts.py         # Orchestration: retry, resume, bounded concurrency, progress callback + log line
     assemble.py    # ffmpeg concat, chapters (M4B native, MP3 via mp3_utils), atempo speed, SRT, durations
     mp3_utils.py   # configure_ffmpeg(); ID3 CHAP/CTOC chapters; ID3 + MP4 tags and cover art

@@ -4,7 +4,6 @@ import asyncio
 
 import pytest
 
-import echo_app.constants as ec
 from echo.audio.engines import (
     EngineUnavailable,
     available_engines,
@@ -18,8 +17,8 @@ from echo.audio.engines.mlx import MlxEngine
 
 
 class TestRegistry:
-    def test_all_four_engines_are_registered(self):
-        assert set(engine_names()) == {"edge", "gemini", "google-cloud", "mlx"}
+    def test_every_engine_is_registered(self):
+        assert set(engine_names()) == {"edge", "gemini", "google-cloud", "mlx", "piper"}
 
     @pytest.mark.parametrize(
         "alias,expected",
@@ -31,6 +30,8 @@ class TestRegistry:
             ("kokoro", "mlx"),
             ("mlx-audio", "mlx"),
             ("edge-tts", "edge"),
+            ("piper-tts", "piper"),
+            ("offline", "piper"),
             ("EDGE", "edge"),
             ("  edge  ", "edge"),
         ],
@@ -45,8 +46,9 @@ class TestRegistry:
         with pytest.raises(ValueError, match="Unknown engine"):
             get_engine("wav2lip")
 
-    def test_none_falls_back_to_the_configured_default(self):
-        assert get_engine(None).name == get_engine(ec.DEFAULT_ENGINE).name
+    def test_none_falls_back_to_the_library_default_not_the_env(self, monkeypatch):
+        monkeypatch.setenv("DEFAULT_ENGINE", "gemini")
+        assert get_engine(None).name == "edge"
 
     def test_availability_never_raises(self):
         for engine, ok, reason in available_engines():
@@ -57,7 +59,7 @@ class TestRegistry:
 class TestEngineContract:
     """Every engine must declare the attributes the pipeline reads."""
 
-    @pytest.mark.parametrize("name", ["edge", "gemini", "google-cloud", "mlx"])
+    @pytest.mark.parametrize("name", ["edge", "gemini", "google-cloud", "mlx", "piper"])
     def test_declares_the_full_contract(self, name):
         engine = get_engine(name)
         assert engine.name == name
@@ -205,6 +207,49 @@ class TestMlxEngine:
         ok, reason = engine.is_available()
         assert "espeak" not in reason.lower()
         assert "misaki" not in reason.lower()
+
+
+class TestPiperEngine:
+    @pytest.mark.parametrize(
+        "voice_id,expected",
+        [
+            ("en_GB-alan-medium", ("Alan", "en", "GB", "medium")),
+            ("en_GB-northern_english_male-medium", ("Northern English Male", "en", "GB", "medium")),
+            ("de_DE-thorsten-high", ("Thorsten", "de", "DE", "high")),
+        ],
+    )
+    def test_voice_ids_decode_into_voice_info(self, voice_id, expected):
+        from echo.audio.engines.piper import _voice_info
+
+        info = _voice_info(voice_id)
+        assert (info.name, info.language, info.locale, info.tags) == expected
+
+    def test_downloaded_voices_join_the_catalogue(self, tmp_path):
+        from echo.audio.engines.piper import PiperEngine
+
+        (tmp_path / "fr_FR-siwis-medium.onnx").write_bytes(b"")
+        ids = [v.id for v in PiperEngine(voice_dir=tmp_path).voices()]
+        assert "fr_FR-siwis-medium" in ids and "en_GB-alan-medium" in ids
+
+    @pytest.mark.parametrize("speed,expected", [(1.0, 0.9), (1.5, 0.6), (0.5, 1.8)])
+    def test_speed_divides_the_models_own_length_scale(self, tmp_path, speed, expected):
+        pytest.importorskip("piper")
+        from echo.audio.engines.piper import PiperEngine
+
+        seen = {}
+
+        class FakeVoice:
+            config = type("C", (), {"length_scale": 0.9})()
+
+            def synthesize_wav(self, text, wav, syn_config):
+                seen["scale"] = syn_config.length_scale
+                wav.setnchannels(1), wav.setsampwidth(2), wav.setframerate(22050)
+                wav.writeframes(b"\x00\x00" * 100)
+
+        engine = PiperEngine(voice_dir=tmp_path)
+        engine._loaded["v"] = FakeVoice()
+        engine._synthesize_blocking("hi", "v", speed, tmp_path / "out.wav")
+        assert seen["scale"] == pytest.approx(expected)
 
 
 class TestVoiceInfo:

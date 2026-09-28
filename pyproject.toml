@@ -26,6 +26,9 @@ api = ["echo-tts[google]"]
 # see requirements-local-llm.txt for the misaki/spaCy/espeak setup it needs.
 mlx = ["mlx-audio>=0.4.6,<0.5"]
 local = ["echo-tts[mlx]"]
+# Offline synthesis on any OS and Python, CPU only: onnxruntime plus a bundled espeak-ng
+# (~180 MB). Voices (~60 MB each) download on first use.
+piper = ["piper-tts>=1.3,<2"]
 # The audiobook app: extraction from PDF/EPUB/HTML, .env configuration, the CLI.
 app = [
     "python-dotenv>=1.0,<2",

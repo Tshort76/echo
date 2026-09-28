@@ -21,7 +21,7 @@ python create_audio.py --research "the history of the marine chronometer" --name
 - **Structure-aware.** Headings become chapters; tables, figures, code blocks,
   footnote markers, running headers and Project Gutenberg boilerplate are left
   out of the narration.
-- **Four engines behind one interface.** Switch with `--engine`; add one without
+- **Five engines behind one interface.** Switch with `--engine`; add one without
   touching the pipeline.
 - **Small by default.** The base install is ~100 MB with no ML runtime and no model
   weights; local synthesis is a tier you opt into.
@@ -59,6 +59,7 @@ Measured `site-packages` sizes on Python 3.13:
 | `requirements.txt` | **100 MB** | Everything below plus `--engine edge`. No local models. |
 | `requirements-api.txt` | **194 MB** | + Gemini and Google Cloud voices, Deep Research, LLM normalization. Still nothing local. |
 | `requirements-pdf-layout.txt` | +180 MB | + real PDF heading detection (see the caveat below) |
+| `requirements-piper.txt` | +180 MB | + `--engine piper`: offline synthesis on the CPU, any OS, Python 3.14 included. Each voice is a 60 MB download the first time it is used. |
 | `requirements-local-llm.txt` | ~2 GB | + `--engine mlx`: on-device synthesis, offline and unmetered (Apple Silicon) |
 
 Most people want the first or second line. They are additive, so
@@ -170,6 +171,22 @@ permanently** (a 300-page book is roughly 500k characters). The REST API does
 gcloud auth application-default login
 # or: export GOOGLE_APPLICATION_CREDENTIALS=/path/to/service-account.json
 ```
+
+### `piper` — local, offline, anywhere
+
+```bash
+pip install -r requirements-piper.txt
+python create_audio.py book.epub -e piper -v en_GB-alan-medium
+```
+
+This is the local engine that runs everywhere: any OS, any supported Python, and a
+CPU is enough. Measured at **RTF 0.027**, so a ten-hour book synthesizes in about
+16 minutes. It sounds a step below Kokoro, but it needs no espeak or spaCy setup,
+because the wheel bundles espeak-ng. Each voice is a ~60 MB file that is downloaded
+the first time it is used into `~/.cache/echo/piper` (set `PIPER_VOICE_DIR` to
+change that). After that it runs offline. `--list-voices -e piper` shows a short
+list of English voices, and any id from
+[piper-voices](https://huggingface.co/rhasspy/piper-voices) also works.
 
 ### `mlx` — local, on-device (Apple Silicon)
 
@@ -499,6 +516,7 @@ below 1.0. Anything under `echo.audio` is internal.
 | --- | --- | --- |
 | `edge` | 3.11+, including 3.14 | none |
 | `gemini`, `google-cloud` | 3.11+ | `[google]` |
+| `piper` | 3.11+, including 3.14; any OS, CPU only | `[piper]` |
 | `mlx` (Kokoro) | **3.13 only** on Apple Silicon, since its phonemizer needs spaCy, which does not build on 3.14 yet. `check_available()` says so. | `[mlx]`, plus the setup in `requirements-local-llm.txt` |
 
 # Python API (the app)

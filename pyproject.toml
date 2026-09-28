@@ -1,6 +1,6 @@
 [project]
 name = "echo-tts"
-version = "0.3.1"
+version = "0.3.2"
 description = "Text to chaptered speech: a TTS library with pluggable engines, plus an audiobook app"
 readme = "README.md"
 requires-python = ">=3.11"

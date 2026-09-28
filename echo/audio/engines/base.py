@@ -96,6 +96,10 @@ class BaseEngine:
     def check_available(self) -> None:
         return None
 
+    def check_voice(self, voice: str) -> None:
+        """Raise :class:`EngineUnavailable` if ``voice`` cannot be used, before any synthesis."""
+        return None
+
     def voices(self) -> list[VoiceInfo]:
         return []
 

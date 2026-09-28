@@ -118,6 +118,11 @@ async def synthesize_script(
     engine = engine or get_engine()
     engine.check_available()
     voice = voice or engine.default_voice()
+    # Optional on the protocol, so a caller's own SpeechEngine need not define it.
+    check_voice = getattr(engine, "check_voice", None)
+    if check_voice:
+        for v in {voice} | {u.voice for u in script.utterances() if u.voice}:
+            check_voice(v)
     speed = defaults.SPEED if speed is None else speed
     engine_speed = speed if engine.supports_speed else 1.0
     max_retries = defaults.MAX_RETRIES if max_retries is None else max(1, max_retries)
@@ -196,7 +201,8 @@ async def synthesize_script(
     if failures:
         raise SynthesisError(
             f"{len(failures)} of {len(utterances)} chunk(s) could not be synthesized. "
-            f"Completed chunks are kept in {chunks_dir}, so re-running resumes from there.\n  "
+            + (f"Completed chunks are kept in {chunks_dir}, so re-running resumes from there." if resume else "")
+            + "\n  "
             + "\n  ".join(failures[:10])
         )
 

@@ -462,8 +462,8 @@ said and where the chapters fall. echo decides how it is spoken and how the file
 is built.
 
 ```bash
-pip install "echo-tts @ git+https://github.com/Tshort76/echo@v0.3.1"            # edge voices
-pip install "echo-tts[google] @ git+https://github.com/Tshort76/echo@v0.3.1"    # + Gemini / Cloud TTS
+pip install "echo-tts @ git+https://github.com/Tshort76/echo@v0.3.2"            # edge voices
+pip install "echo-tts[google] @ git+https://github.com/Tshort76/echo@v0.3.2"    # + Gemini / Cloud TTS
 ```
 
 ```python

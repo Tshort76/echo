@@ -106,6 +106,9 @@ class PiperEngine(BaseEngine):
     def default_voice(self) -> str:
         return self._voice
 
+    def check_voice(self, voice: str) -> None:
+        _local_model(voice)  # a missing local model fails here, not once per chunk
+
     def _load(self, voice: str):
         with self._lock:
             if voice not in self._loaded:

@@ -8,7 +8,7 @@ from mutagen.id3 import ID3
 from mutagen.mp4 import MP4
 
 import echo
-from echo import Chapter, SynthesisError, speak_chapters, split_text
+from echo import Chapter, EngineUnavailable, SynthesisError, speak_chapters, split_text
 from echo.audio.mp3_utils import configure_ffmpeg
 from test.test_synthesis import FakeEngine
 
@@ -72,6 +72,31 @@ class TestSpeakChapters:
     def test_format_comes_from_the_suffix_and_an_unknown_one_is_refused(self, tmp_path):
         with pytest.raises(ValueError, match="output format"):
             speak_chapters(CHAPTERS, tmp_path / "out.wav", engine=FakeEngine())
+
+
+class VoiceCheckingEngine(FakeEngine):
+    """Rejects one voice up front, the way Piper rejects a missing local model."""
+
+    def check_voice(self, voice):
+        if voice == "missing":
+            raise EngineUnavailable("model missing does not exist")
+
+
+class TestFailFast:
+    def test_an_unusable_voice_fails_before_any_chunk_is_tried(self, tmp_path):
+        engine = VoiceCheckingEngine()
+        with pytest.raises(EngineUnavailable, match="missing"):
+            speak_chapters(CHAPTERS, tmp_path / "out.mp3", engine=engine, voice="missing")
+        assert engine.calls == 0
+
+    @pytest.mark.parametrize("resume,mentions_kept", [(False, False), (True, True)])
+    def test_failure_mentions_kept_chunks_only_when_they_are_kept(self, tmp_path, resume, mentions_kept):
+        with pytest.raises(SynthesisError) as err:
+            speak_chapters(
+                CHAPTERS, tmp_path / "out.mp3", engine=FakeEngine(fail_always_at={1}), retry_backoff=0,
+                resume_dir=tmp_path / "resume" if resume else None,
+            )
+        assert ("kept in" in str(err.value)) is mentions_kept
 
 
 class TestFilesystem:

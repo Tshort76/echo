@@ -20,8 +20,11 @@ the split".
 
 Open follow-ups from the split:
 
-- [ ] **Tag `v0.3.0` and push it**, so weekly-news can depend on
-      `echo-tts @ git+…@v0.3.0`. (S)
+- [x] ~~**Tag a release for weekly-news.**~~ weekly-news pins `v0.3.2` (its
+      commit `1a24f38`). It confirmed end to end on 27 Sep 2026: the 2026-W39
+      edition, 7 chapters, spoken with edge and with Piper from a local `.onnx`.
+      Its audio code is about 80 lines: it tries edge, then Piper, catching
+      `EchoError`. Nothing is open between the two projects.
 - [x] ~~**Piper as an engine?**~~ Added as `--engine piper`. It is the only local
       engine that runs on Python 3.14 and off Apple Silicon, at RTF 0.027 on the
       CPU, so weekly-news's fallback moves into echo. The frozen build carries it: `Echo.app` rebuilt

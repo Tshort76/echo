@@ -231,6 +231,29 @@ class TestPiperEngine:
         ids = [v.id for v in PiperEngine(voice_dir=tmp_path).voices()]
         assert "fr_FR-siwis-medium" in ids and "en_GB-alan-medium" in ids
 
+    def test_a_local_onnx_path_loads_without_downloading(self, tmp_path, monkeypatch):
+        piper = pytest.importorskip("piper")
+        import piper.download_voices as dv
+        from echo.audio.engines.piper import PiperEngine
+
+        model = tmp_path / "custom.onnx"
+        model.write_bytes(b"")
+        (tmp_path / "custom.onnx.json").write_text("{}")
+        loaded = []
+        monkeypatch.setattr(dv, "download_voice", lambda *a: pytest.fail("downloaded a local model"))
+        monkeypatch.setattr(piper.PiperVoice, "load", staticmethod(lambda path: loaded.append(path) or "voice"))
+        assert PiperEngine(voice_dir=tmp_path / "cache")._load(str(model)) == "voice"
+        assert loaded == [model]
+
+    @pytest.mark.parametrize("missing", ["custom.onnx", "custom.onnx.json"])
+    def test_a_local_model_missing_a_file_says_which(self, tmp_path, missing):
+        from echo.audio.engines.piper import _local_model
+
+        for name in {"custom.onnx", "custom.onnx.json"} - {missing}:
+            (tmp_path / name).write_text("{}")
+        with pytest.raises(EngineUnavailable, match="does not exist|no config"):
+            _local_model(str(tmp_path / "custom.onnx"))
+
     @pytest.mark.parametrize("speed,expected", [(1.0, 0.9), (1.5, 0.6), (0.5, 1.8)])
     def test_speed_divides_the_models_own_length_scale(self, tmp_path, speed, expected):
         pytest.importorskip("piper")

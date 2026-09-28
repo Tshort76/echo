@@ -9,7 +9,9 @@ only on Apple Silicon under Python 3.13.
 Voices are ~60 MB ONNX files from the rhasspy/piper-voices repository on Hugging
 Face. They are downloaded on first use into ``voice_dir`` (default
 ``~/.cache/echo/piper``, or ``PIPER_VOICE_DIR``), so the first chapter with a new
-voice needs the network, and every later run is offline.
+voice needs the network, and every later run is offline. A voice may instead be
+a path to a local ``.onnx`` model (its ``.onnx.json`` config beside it), which is
+loaded as-is with no download.
 """
 
 from __future__ import annotations
@@ -59,6 +61,18 @@ def _voice_info(voice_id: str, gender: str = "") -> VoiceInfo:
     )
 
 
+def _local_model(voice: str) -> Path | None:
+    """The model file when ``voice`` is a path to one, else None (a catalogue id)."""
+    if not voice.endswith(".onnx"):
+        return None
+    path = Path(voice).expanduser()
+    if not path.is_file():
+        raise EngineUnavailable(f"Piper model {path} does not exist")
+    if not Path(f"{path}.json").is_file():
+        raise EngineUnavailable(f"Piper model {path} has no config beside it ({path.name}.json)")
+    return path
+
+
 class PiperEngine(BaseEngine):
     name = "piper"
     label = "Piper (local, offline)"
@@ -98,8 +112,9 @@ class PiperEngine(BaseEngine):
                 from piper import PiperVoice  # noqa: PLC0415
                 from piper.download_voices import download_voice  # noqa: PLC0415
 
-                model = self.voice_dir / f"{voice}.onnx"
-                if not (model.exists() and Path(f"{model}.json").exists()):
+                local = _local_model(voice)
+                model = local or self.voice_dir / f"{voice}.onnx"
+                if local is None and not (model.exists() and Path(f"{model}.json").exists()):
                     log.info(f"Downloading Piper voice {voice} to {self.voice_dir} (~60 MB, once)")
                     self.voice_dir.mkdir(parents=True, exist_ok=True)
                     download_voice(voice, self.voice_dir)

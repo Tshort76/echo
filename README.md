@@ -186,7 +186,9 @@ because the wheel bundles espeak-ng. Each voice is a ~60 MB file that is downloa
 the first time it is used into `~/.cache/echo/piper` (set `PIPER_VOICE_DIR` to
 change that). After that it runs offline. `--list-voices -e piper` shows a short
 list of English voices, and any id from
-[piper-voices](https://huggingface.co/rhasspy/piper-voices) also works.
+[piper-voices](https://huggingface.co/rhasspy/piper-voices) also works. A voice can also be
+the path to a local `.onnx` model, with its `.onnx.json` config beside it. That
+model loads as-is, with no download.
 
 ### `mlx` — local, on-device (Apple Silicon)
 
@@ -460,8 +462,8 @@ said and where the chapters fall. echo decides how it is spoken and how the file
 is built.
 
 ```bash
-pip install "echo-tts @ git+https://github.com/Tshort76/echo@v0.3.0"            # edge voices
-pip install "echo-tts[google] @ git+https://github.com/Tshort76/echo@v0.3.0"    # + Gemini / Cloud TTS
+pip install "echo-tts @ git+https://github.com/Tshort76/echo@v0.3.1"            # edge voices
+pip install "echo-tts[google] @ git+https://github.com/Tshort76/echo@v0.3.1"    # + Gemini / Cloud TTS
 ```
 
 ```python

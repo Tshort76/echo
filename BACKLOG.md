@@ -227,6 +227,9 @@ Two open risks from the same work:
       is **Python 3.14**: sherpa-onnx does its own ONNX grapheme-to-phoneme, so it
       needs neither `misaki` nor spaCy, which is the entire 3.14 blocker. Apache-2.0,
       no PyTorch.
+      Less urgent again since 27 Sep 2026: `--engine piper` already gives offline
+      synthesis on 3.14 and on any OS. What this would add is Kokoro's better voice
+      quality on 3.14. Piper sounds a step below Kokoro.
 - [x] ~~**Kokoro via mlx in a Python 3.13 environment.**~~ Done — and it was not the
       "just an interpreter change" this entry predicted; see `b4dc10a` and §2.
 

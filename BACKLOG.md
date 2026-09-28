@@ -24,9 +24,12 @@ Open follow-ups from the split:
       `echo-tts @ git+…@v0.3.0`. (S)
 - [x] ~~**Piper as an engine?**~~ Added as `--engine piper`. It is the only local
       engine that runs on Python 3.14 and off Apple Silicon, at RTF 0.027 on the
-      CPU, so weekly-news's fallback moves into echo. Not yet exercised in a frozen
-      build: the spec runs `collect_all("piper")` for its espeak data and native
-      bridge, but no build has been made with it.
+      CPU, so weekly-news's fallback moves into echo. The frozen build carries it: `Echo.app` rebuilt
+      27 Sep 2026 (609 MB) bundles `piper/espeakbridge.so` and `espeak-ng-data`
+      (via `collect_all("piper")`), `echo/data/voices.csv` (322 voices) and the
+      vendored ffmpeg, with `imageio_ffmpeg` excluded. It launches cleanly, and
+      the bundle's own piper synthesized speech. A preview clicked inside the
+      running app has not been tried.
 - [ ] **The frozen app could drop its vendored ffmpeg** in favour of the
       `imageio-ffmpeg` binary. The spec currently excludes that binary when a
       vendored one exists, so nothing is bundled twice. The switch would remove
@@ -60,7 +63,8 @@ were not in the review at all.
 | GUI conversion queue — "Create audiobook" enqueues, jobs drain serially | `7883b05` ⚠️ |
 | Default speed 1.0×, was 1.25× — see §6 | `7883b05` |
 | Dual theme: Material-teal light + Nord dark, light/dark/system picker, follows the OS live | `5338fc6` |
-| Library/app split: `speak_chapters`, MP3 chapters, pip-supplied ffmpeg, config by argument | (uncommitted) |
+| Library/app split: `speak_chapters`, MP3 chapters, pip-supplied ffmpeg, config by argument | `10e9d1a` |
+| Piper engine; `v0.3.0` tagged for weekly-news | `3a790ff` |
 
 **401 tests** pass with every extra installed; **309** on the lite install (both
 measured 27 Sep 2026 with the library split, the lite figure in a throwaway

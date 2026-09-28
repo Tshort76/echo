@@ -2,15 +2,15 @@
 
 import pytest
 
-import echo.constants as ec
-from echo.document import BlockKind
-from echo.extractors.text import (
+import echo_app.constants as ec
+from echo_app.document import BlockKind
+from echo_app.extractors.text import (
     blocks_from_plain_text,
     strip_gutenberg_blocks,
     to_chunks,
     unwrap_paragraph,
 )
-from echo.document import Block
+from echo_app.document import Block
 
 
 class TestToChunks:

@@ -27,6 +27,8 @@ python create_audio.py --research "the history of the marine chronometer" --name
   weights; local synthesis is a tier you opt into.
 - **Safe to leave running.** Every chunk is retried, and an interrupted run
   resumes from the chunks already on disk instead of starting the book again.
+- **A library as well as an app.** `from echo import speak_chapters` gives any
+  project chaptered speech — see [Using echo as a library](#using-echo-as-a-library).
 - **CLI or desktop app.** The GUI is an optional layer; the CLI never depends on
   it. Both convert books back to back: the app has a conversion queue, the CLI a
   folder-at-a-time script.
@@ -39,12 +41,10 @@ source .venv/bin/activate            # Windows: .\.venv\Scripts\Activate.ps1
 pip install -r requirements.txt
 ```
 
-**ffmpeg is required** to join audio and write M4B chapters:
-
-```bash
-brew install ffmpeg                  # macOS
-# Windows: download from https://ffmpeg.org and put it on PATH
-```
+ffmpeg joins the audio and writes chapters. It comes with the install, as the
+`imageio-ffmpeg` wheel's static build for macOS, Linux or Windows, so there is
+nothing else to install. A system ffmpeg on `PATH` is used only if that wheel is
+missing.
 
 That's the **lite** install: ~100 MB, with **no machine-learning runtimes, no model
 weights and no local LLM**. Every voice is an API call, and `--engine edge` needs no
@@ -104,7 +104,6 @@ DEFAULT_ENGINE="edge"           # edge | gemini | google-cloud | mlx
 DEFAULT_VOICE="en-GB-SoniaNeural"
 DEFAULT_SPEED="1.0"             # baked into the audio; 1.0 keeps the file re-usable
 DEFAULT_CHUNK_SIZE="8000"       # characters per request, capped by the engine's own limit
-DEFAULT_MAX_THREADS="4"
 DEFAULT_MAX_RETRIES="3"
 DEFAULT_RETRY_BACKOFF="2.0"     # seconds before the first retry, doubling after that
 
@@ -435,10 +434,80 @@ build manually: `pyinstaller echo_gui.spec --noconfirm --clean`.
   More info → Run anyway).
 - Icons are optional: drop `packaging/icons/echo.icns` / `echo.ico` to brand the app.
 
-# Python API
+# Using echo as a library
+
+The `echo` package is a text-to-speech library. You give it titled chapters of
+plain text and get back one audio file with chapter marks. The audiobook app
+(`echo_app`, the CLI and the GUI) is built on it. Your project decides what is
+said and where the chapters fall. echo decides how it is spoken and how the file
+is built.
+
+```bash
+pip install "echo-tts @ git+https://github.com/Tshort76/echo@v0.3.0"            # edge voices
+pip install "echo-tts[google] @ git+https://github.com/Tshort76/echo@v0.3.0"    # + Gemini / Cloud TTS
+```
 
 ```python
-import echo.core as core
+from echo import Chapter, speak_chapters
+
+result = speak_chapters(
+    [Chapter("Opening", opening_text), Chapter("Europe", europe_text)],
+    "digest.mp3",                       # .mp3 or .m4b; both get chapter marks
+    title="The weekly digest",
+    engine="edge",
+    voice="en-GB-RyanNeural",
+    on_progress=lambda done, total: print(f"{done}/{total}"),
+)
+result.chapters     # [ChapterMark(title='Opening', start_ms=0, end_ms=41230), ...]
+for title, start_ms, end_ms in result.chapters: ...
+```
+
+- **One call.** Each chapter's text is split to the engine's size limit on its
+  own, so a chunk never straddles two chapters. Every mark lands exactly on its
+  boundary.
+- **Chapters in MP3 too.** MP3 output gets ID3 `CHAP` frames plus a `CTOC` table
+  of contents, which podcast apps and VLC read. M4B gets native chapters. The
+  times you get back already account for `speed`.
+- **Configured by argument.** `engine`, `voice`, `speed`, `chunk_size`, `bitrate`
+  and the retry policy are all parameters. Importing `echo` reads no `.env` file
+  and changes nothing in `os.environ`. Engines read their own credentials from
+  the environment when first used: `GEMINI_API_KEY` for `gemini`, Application
+  Default Credentials for `google-cloud`.
+- **Check before you synthesize.** `get_engine("gemini").check_available()` raises
+  `EngineUnavailable` with what to install or set. `available_engines()` lists
+  every engine with `(engine, ok, reason)`. You can also pass your own
+  `SpeechEngine` instance as `engine=`.
+- **Typed failures.** `EngineUnavailable`, `SynthesisError` and `AssemblyError`
+  all derive from `EchoError`. A `SynthesisError` means some utterance still
+  failed after its retries, so a caller can try another engine.
+- **Temporary files.** Scratch goes in a private directory under `work_dir`
+  (default: the system temp directory), and that directory is removed when the
+  call returns or raises. Nothing is written beside the output. Pass
+  `resume_dir=` to keep chunks across calls. Chunks are named by a digest of
+  their text, voice, engine and speed, so a reused directory never serves stale
+  audio.
+- **Quiet.** Output goes through `logging` under the `echo` logger, which has
+  a `NullHandler`. Nothing is printed.
+- **Async.** From inside an event loop, `await aspeak_chapters(...)`.
+  `speak_chapters` is the blocking form.
+
+`__all__` in `echo/__init__.py` is the public API. Versions follow semver: a
+breaking change to any name in `__all__` bumps the minor version while echo is
+below 1.0. Anything under `echo.audio` is internal.
+
+| Engine | Python | Extra |
+| --- | --- | --- |
+| `edge` | 3.11+, including 3.14 | none |
+| `gemini`, `google-cloud` | 3.11+ | `[google]` |
+| `mlx` (Kokoro) | **3.13 only** on Apple Silicon, since its phonemizer needs spaCy, which does not build on 3.14 yet. `check_available()` says so. | `[mlx]`, plus the setup in `requirements-local-llm.txt` |
+
+# Python API (the app)
+
+These need the app's dependencies: `pip install -r requirements.txt`, or the
+`echo-tts[app]` extra.
+
+```python
+import echo_app.core as core
 
 # The whole pipeline
 core.file_to_audio(
@@ -456,7 +525,7 @@ core.file_to_audio(
 ## The stages, individually
 
 ```python
-import echo.core as core
+import echo_app.core as core
 
 # 1. Parse into a structured Document (headings, tables, figures, page numbers)
 doc = core.extract_document("resources/demo_data/america_against_america_sample.pdf")
@@ -496,11 +565,11 @@ len(all_voices())
 # Audition one — synthesizes a short sample and opens it in your audio player.
 # Writes to a temp directory, one file per voice. This is the same code path the
 # GUI's preview button uses, so what you hear here is what the book will sound like.
-import echo.core as core
+import echo_app.core as core
 core.preview_voice("en-GB-SoniaNeural", speed=1.25)
 ```
 
-Refresh the bundled edge voice cache (`resources/voices.csv`):
+Refresh the bundled edge voice cache (`echo/data/voices.csv`):
 
 ```python
 import asyncio
@@ -512,8 +581,8 @@ asyncio.run(update_voice_cache_file())
 ## Project Gutenberg
 
 ```python
-import echo.gutenberg as gutenberg
-import echo.core as core
+import echo_app.gutenberg as gutenberg
+import echo_app.core as core
 
 for book in gutenberg.search("frankenstein", limit=3):
     print(book.id, book.label, book.available_formats())
@@ -529,7 +598,7 @@ gutenberg.fetch(book_id=2680, prefer="epub")
 ## Text to audio directly
 
 ```python
-import echo.core as core
+import echo_app.core as core
 
 core.text_to_mp3("Hello friend, you look excellent today!", "affirmation.mp3")
 # -> PosixPath('affirmation.mp3')
@@ -538,8 +607,8 @@ core.text_to_mp3("Hello friend, you look excellent today!", "affirmation.mp3")
 ## Extracting text only
 
 ```python
-from echo.extractors.misc import extract_epub
-from echo.extractors.pdfs import extract_annotations, extract_pdf
+from echo_app.extractors.misc import extract_epub
+from echo_app.extractors.pdfs import extract_annotations, extract_pdf
 
 # Highlights and notes from a marked-up PDF
 extract_annotations("your_marked_up.pdf")
@@ -558,8 +627,8 @@ pytest                  # works from the repo root or from inside test/
 ```
 
 The suite is **tier-aware**: tests that need an optional dependency skip themselves
-rather than fail, so it passes on the lite install as well as a full one (293 tests
-on lite, 385 with every extra). That matters because six tests once quietly assumed
+rather than fail, so it passes on the lite install as well as a full one (309 tests
+on lite, 401 with every extra). That matters because six tests once quietly assumed
 `pymupdf4llm` and `google-genai` were present — nothing had ever run them on a
 minimal environment.
 

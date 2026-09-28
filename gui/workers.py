@@ -20,7 +20,7 @@ from pathlib import Path
 
 from PySide6.QtCore import QThread, Signal
 
-import echo.core as core
+import echo_app.core as core
 
 _PROGRESS_RE = re.compile(r"Progress Report:\s*(\d+)\s*%")
 
@@ -146,7 +146,7 @@ class GutenbergSearchWorker(QThread):
 
     def run(self) -> None:
         try:
-            import echo.gutenberg as gutenberg
+            import echo_app.gutenberg as gutenberg
 
             self.results.emit(
                 gutenberg.search(self._title, self._author or None, language=self._language)
@@ -169,12 +169,12 @@ class GutenbergDownloadWorker(QThread):
 
     def run(self) -> None:
         handler = _SignalLogHandler(self.message.emit, lambda _pct: None, logging.INFO)
-        logger = logging.getLogger("echo.gutenberg")
+        logger = logging.getLogger("echo_app.gutenberg")
         prior = logger.level
         logger.setLevel(logging.INFO)
         logger.addHandler(handler)
         try:
-            import echo.gutenberg as gutenberg
+            import echo_app.gutenberg as gutenberg
 
             self.downloaded.emit(gutenberg.download(self._book, prefer=self._prefer))
         except Exception as exc:
@@ -206,8 +206,8 @@ class ResearchWorker(QThread):
 
     def run(self) -> None:
         try:
-            import echo.constants as ec
-            from echo.research import DeepResearcher
+            import echo_app.constants as ec
+            from echo_app.research import DeepResearcher
 
             self._researcher = DeepResearcher()
             result = self._researcher.run(

@@ -2,8 +2,8 @@
 
 import pytest
 
-import echo.normalize as norm
-from echo.document import Block, BlockKind, Document
+import echo_app.normalize as norm
+from echo_app.document import Block, BlockKind, Document
 
 footnote_fixes = {
     " 4.56 ": " 4.56 ",

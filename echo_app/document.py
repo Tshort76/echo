@@ -1,4 +1,4 @@
-"""The data model that flows between pipeline stages.
+"""The extraction model: what a source file says, structurally.
 
 Before this module, ``convert_to_text()`` returned a bare ``str``, which cannot
 carry chapter boundaries, heading levels, "don't read this table", or page
@@ -92,74 +92,5 @@ class Document:
         return sum(len(b.text) for b in self.blocks if b.is_spoken)
 
 
-@dataclass(slots=True)
-class Utterance:
-    """One synthesis request: a chunk of text small enough for the engine."""
-
-    text: str
-    #: Overrides the run's default voice when set (per-chapter or per-speaker).
-    voice: str | None = None
-
-    def __len__(self) -> int:
-        return len(self.text)
-
-
-@dataclass(slots=True)
-class Chapter:
-    """A titled span of utterances, which becomes one M4B chapter mark."""
-
-    title: str
-    utterances: list[Utterance] = field(default_factory=list)
-
-    @property
-    def char_count(self) -> int:
-        return sum(len(u) for u in self.utterances)
-
-
-@dataclass(slots=True)
-class Script:
-    """The narration plan: ordered chapters of engine-sized utterances."""
-
-    chapters: list[Chapter] = field(default_factory=list)
-    title: str | None = None
-    author: str | None = None
-
-    def utterances(self) -> list[Utterance]:
-        """Every utterance in reading order -- the unit of synthesis."""
-        return [u for ch in self.chapters for u in ch.utterances]
-
-    def chapter_of(self, utterance_index: int) -> int:
-        """Index of the chapter containing the nth utterance."""
-        seen = 0
-        for i, ch in enumerate(self.chapters):
-            seen += len(ch.utterances)
-            if utterance_index < seen:
-                return i
-        raise IndexError(f"utterance {utterance_index} is past the end of the script")
-
-    @property
-    def char_count(self) -> int:
-        return sum(ch.char_count for ch in self.chapters)
-
-    def as_text(self) -> str:
-        return "\n\n".join(u.text for u in self.utterances())
-
-
-@dataclass(slots=True)
-class Timing:
-    """A word or sentence boundary reported by an engine, in milliseconds
-    relative to the start of its own audio segment."""
-
-    start_ms: int
-    end_ms: int
-    text: str
-
-
-@dataclass(slots=True)
-class Segment:
-    """One synthesized utterance on disk, plus whatever timings came with it."""
-
-    index: int
-    path: Path
-    duration_ms: int
-    timings: list[Timing] = field(default_factory=list)
+# The Script side of the model lives in the library; re-exported for app code.
+from echo.script import Script, ScriptChapter, Segment, Timing, Utterance  # noqa: E402,F401

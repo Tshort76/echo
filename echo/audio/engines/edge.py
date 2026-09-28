@@ -13,11 +13,15 @@ from pathlib import Path
 
 import edge_tts
 
-import echo.constants as ec
 from echo.audio.engines.base import BaseEngine, EngineUnavailable, SynthOutput, VoiceInfo
-from echo.document import Timing
+from echo.paths import package_data
+from echo.script import Timing
 
 log = logging.getLogger(__name__)
+
+DEFAULT_VOICE = "en-GB-SoniaNeural"
+#: The edge voice catalogue, shipped so a voice picker needs no network round trip.
+VOICE_CACHE_FILE = package_data("voices.csv")
 
 
 def speed_as_rate(speed: float) -> str:
@@ -36,7 +40,7 @@ class EdgeEngine(BaseEngine):
     name = "edge"
     label = "Edge (Microsoft, free)"
     audio_suffix = ".mp3"
-    max_concurrency = ec.MAX_THREADS
+    max_concurrency = 4
 
     def check_available(self) -> None:
         return None  # no credentials, no local model
@@ -46,10 +50,10 @@ class EdgeEngine(BaseEngine):
 
         Refresh it with ``echo.audio.voices.update_voice_cache_file()``.
         """
-        path = Path(ec.VOICE_CACHE_FILE)
+        path = VOICE_CACHE_FILE
         if not path.exists():
             log.warning(f"Voice cache {path} is missing; falling back to the default voice only")
-            return [VoiceInfo(id=ec.DEFAULT_VOICE, engine=self.name, name=ec.DEFAULT_VOICE)]
+            return [VoiceInfo(id=DEFAULT_VOICE, engine=self.name, name=DEFAULT_VOICE)]
 
         out: list[VoiceInfo] = []
         for line in path.read_text(encoding="utf-8").splitlines():
@@ -76,7 +80,7 @@ class EdgeEngine(BaseEngine):
         return out
 
     def default_voice(self) -> str:
-        return ec.DEFAULT_VOICE
+        return DEFAULT_VOICE
 
     async def synthesize(self, text: str, voice: str, speed: float, out_path: Path) -> SynthOutput:
         rate = speed_as_rate(speed)

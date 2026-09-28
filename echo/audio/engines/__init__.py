@@ -11,7 +11,7 @@ from __future__ import annotations
 import logging
 from typing import Callable
 
-import echo.constants as ec
+from echo import defaults
 from echo.audio.engines.base import (
     BaseEngine,
     EngineUnavailable,
@@ -86,7 +86,7 @@ def engine_names() -> list[str]:
 
 def get_engine(name: str = None) -> SpeechEngine:
     """Resolve an engine by name (or alias), constructing it once per process."""
-    key = (name or ec.DEFAULT_ENGINE or "edge").strip().lower()
+    key = (name or defaults.ENGINE).strip().lower()
     key = _ALIASES.get(key, key)
     if key not in _ENGINES:
         raise ValueError(f"Unknown engine '{name}'. Choose from: {', '.join(_ENGINES)}")

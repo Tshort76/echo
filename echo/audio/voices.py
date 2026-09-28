@@ -1,7 +1,7 @@
 """Voice discovery.
 
 Cross-engine listing lives in :mod:`echo.audio.engines`; what remains here is the
-edge-tts voice cache — ``resources/voices.csv``, which ships with the app so the
+edge-tts voice cache — ``echo/data/voices.csv``, which ships with the app so the
 GUI can populate its dropdown without a network round trip.
 """
 
@@ -10,7 +10,7 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 
-import echo.constants as ec
+from echo.audio.engines.edge import VOICE_CACHE_FILE
 
 log = logging.getLogger(__name__)
 
@@ -29,8 +29,8 @@ async def _request_voices() -> list[str]:
 
 
 async def update_voice_cache_file(path: str | Path = None) -> Path:
-    """Refresh ``resources/voices.csv`` from the live Edge voice list."""
-    path = Path(path or ec.VOICE_CACHE_FILE)
+    """Refresh ``echo/data/voices.csv`` from the live Edge voice list."""
+    path = Path(path or VOICE_CACHE_FILE)
     rows = await _request_voices()
     path.write_text("\n".join(rows) + "\n", encoding="utf-8")
     log.info(f"Wrote {len(rows)} voices to {path}")
@@ -49,12 +49,12 @@ async def find_voices(
         lang: language code filter ('en', 'es', 'fr').
         gender: 'Male' or 'Female'.
         tag: substring match against the personality tags or locale.
-        use_cache: read ``resources/voices.csv`` instead of calling the service.
+        use_cache: read ``echo/data/voices.csv`` instead of calling the service.
 
     Returns:
         Voice descriptions as "name,language,locale,gender,tags".
     """
-    cache = Path(ec.VOICE_CACHE_FILE)
+    cache = VOICE_CACHE_FILE
     if use_cache and cache.exists():
         voices = [line.strip() for line in cache.read_text(encoding="utf-8").splitlines() if line.strip()]
     else:

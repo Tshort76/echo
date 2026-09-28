@@ -16,7 +16,7 @@ IS_WIN = sys.platform.startswith("win")
 IS_MAC = sys.platform == "darwin"
 
 # --- bundled data (absolute sources so cwd doesn't matter) ---
-datas = [(str(HERE / "resources" / "voices.csv"), "resources")]
+datas = [(str(HERE / "echo" / "data" / "voices.csv"), "echo/data")]
 _demo = HERE / "resources" / "demo_data"
 if _demo.is_dir():
     datas.append((str(_demo), "resources/demo_data"))
@@ -26,14 +26,15 @@ binaries = []
 _ff_name = "ffmpeg.exe" if IS_WIN else "ffmpeg"
 _ff_platform = "windows" if IS_WIN else ("darwin" if IS_MAC else "linux")
 _ff = HERE / "vendor" / "ffmpeg" / _ff_platform / _ff_name
-if _ff.exists():
+_bundled_ffmpeg = _ff.exists()
+if _bundled_ffmpeg:
     binaries.append((str(_ff), "bin"))
     _lic = _ff.parent / "LICENSE.txt"
     if _lic.exists():
         datas.append((str(_lic), "bin"))
 else:
     print(f"[echo_gui.spec] NOTE: no bundled ffmpeg at {_ff}; "
-          "the app will rely on a system ffmpeg on PATH. "
+          "the app will rely on imageio-ffmpeg's build, or a system ffmpeg on PATH. "
           "Run `python packaging/fetch_ffmpeg.py` to bundle one.")
 
 # --- optional speech engines ---
@@ -58,6 +59,11 @@ excludes = [
     "PySide6.QtQml", "PySide6.QtQuick", "PySide6.Qt3DCore",
     "PySide6.QtCharts", "PySide6.QtMultimedia", "PySide6.QtNetwork",
 ]
+
+# The vendored ffmpeg wins at run time (echo.audio.mp3_utils.configure_ffmpeg), so
+# imageio-ffmpeg's own ~47 MB binary would be dead weight next to it.
+if _bundled_ffmpeg:
+    excludes.append("imageio_ffmpeg")
 
 _OPTIONAL_ENGINES = {
     "google.genai": ["google.genai", "echo.audio.engines.google"],

@@ -4,7 +4,7 @@ import asyncio
 
 import pytest
 
-import echo.constants as ec
+import echo_app.constants as ec
 from echo.audio.engines import (
     EngineUnavailable,
     available_engines,

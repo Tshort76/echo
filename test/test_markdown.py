@@ -1,7 +1,7 @@
 """The markdown block parser — the layer that replaced structural guesswork."""
 
-from echo.document import BlockKind
-from echo.extractors.markdown import blocks_from_markdown, strip_inline_markdown
+from echo_app.document import BlockKind
+from echo_app.extractors.markdown import blocks_from_markdown, strip_inline_markdown
 
 
 def kinds(md):

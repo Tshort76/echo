@@ -2,9 +2,10 @@ import logging
 import re
 from pathlib import Path
 
-import echo.constants as ec
-from echo.document import Block, BlockKind, Document
-from echo.extractors.markdown import blocks_from_markdown
+import echo_app.constants as ec
+from echo_app.document import Block, BlockKind, Document
+from echo.text import split_text
+from echo_app.extractors.markdown import blocks_from_markdown
 
 log = logging.getLogger(__name__)
 
@@ -176,38 +177,5 @@ def extract_markdown(path: Path) -> Document:
     )
 
 
-def to_chunks(text: str, max_chars: int = None) -> list[str]:
-    """Split text into chunks of at most ``max_chars``, preferring paragraph then
-    sentence boundaries so chunk seams land where speech naturally pauses."""
-    max_chars = max_chars or ec.CHUNK_SIZE
-
-    # Note: re.sub returns a new string — the results have to be assigned. The
-    # original code called these and discarded them, so normalization never ran.
-    text = ec.EMPTY_LINES.sub("\n\n", text)
-    text = ec.REDUNDANT_SPACES.sub(" ", text)
-
-    chunks: list[str] = []
-    current_chunk = ""
-
-    for para in text.split("\n\n"):
-        para = para.strip()
-        if not para:
-            continue
-
-        if len(current_chunk) + len(para) + 2 > max_chars and current_chunk:
-            chunks.append(current_chunk.strip())
-            current_chunk = ""
-
-        if len(para) > max_chars:
-            for sentence in ec.SENTENCES.split(para):
-                if len(current_chunk) + len(sentence) + 1 > max_chars and current_chunk:
-                    chunks.append(current_chunk.strip())
-                    current_chunk = ""
-                current_chunk += sentence + " "
-        else:
-            current_chunk += para + "\n\n"
-
-    if current_chunk.strip():
-        chunks.append(current_chunk.strip())
-
-    return chunks
+# Kept under its old name for app callers; the splitter lives in the library.
+to_chunks = split_text

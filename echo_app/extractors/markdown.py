@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import re
 
-from echo.document import Block, BlockKind
+from echo_app.document import Block, BlockKind
 
 ATX_HEADING = re.compile(r"^(#{1,6})\s+(.*?)\s*#*\s*$")
 SETEXT_H1 = re.compile(r"^=+\s*$")

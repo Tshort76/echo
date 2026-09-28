@@ -20,26 +20,28 @@ import shutil
 import struct
 import subprocess
 import tempfile
-from dataclasses import dataclass
 from pathlib import Path
+from typing import NamedTuple
 
-import echo.constants as ec
-from echo.audio.mp3_utils import configure_ffmpeg
+from echo import defaults
+from echo.audio.mp3_utils import configure_ffmpeg, write_mp3_chapters
+from echo.errors import AssemblyError
 
 log = logging.getLogger(__name__)
 
 FORMATS = ("m4b", "mp3")
 
 
-class AssemblyError(RuntimeError):
-    pass
+class ChapterMark(NamedTuple):
+    """One chapter's place in the finished file. A tuple, so it unpacks as
+    ``(title, start_ms, end_ms)``."""
 
-
-@dataclass(slots=True)
-class ChapterMark:
     title: str
     start_ms: int
     end_ms: int
+
+    def scaled(self, factor: float) -> "ChapterMark":
+        return ChapterMark(self.title, round(self.start_ms * factor), round(self.end_ms * factor))
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -97,8 +99,9 @@ def _ffmpeg() -> str:
     if binary is None:
         raise AssemblyError(
             "ffmpeg was not found — it is needed to join the synthesized chunks. "
-            "Install it (`brew install ffmpeg` on macOS) or, for a packaged build, "
-            "run `python packaging/fetch_ffmpeg.py`."
+            "It normally comes with the imageio-ffmpeg package (`pip install imageio-ffmpeg`); "
+            "otherwise install ffmpeg itself, or for a packaged build run "
+            "`python packaging/fetch_ffmpeg.py`."
         )
     return binary
 
@@ -180,15 +183,19 @@ def assemble(
     author: str = None,
     speed: float = None,
     bitrate: str = None,
+    scratch_dir: Path = None,
 ) -> Path:
     """Join ``segments`` into ``output_path``.
 
     Args:
         segments: chunk files in reading order. All must share a container.
-        fmt: ``"m4b"`` (chaptered) or ``"mp3"``.
-        chapters: chapter marks, written only for M4B.
+        fmt: ``"m4b"`` or ``"mp3"``; taken from ``output_path``'s suffix when omitted.
+        chapters: chapter marks, in the output's timeline (i.e. already scaled for
+            ``speed``). M4B carries them natively; MP3 gets ID3 CHAP/CTOC frames.
         speed: applied here (atempo) when the engine could not apply it itself.
         bitrate: AAC/MP3 bitrate when re-encoding.
+        scratch_dir: where the ffmpeg playlist and metadata files go; the system
+            temp directory when omitted. Removed before returning either way.
     """
     if not segments:
         raise AssemblyError("There are no audio segments to join")
@@ -196,17 +203,17 @@ def assemble(
     if missing:
         raise AssemblyError(f"Missing audio segment(s): {missing[:5]}")
 
-    fmt = (fmt or ec.DEFAULT_FORMAT).lower().lstrip(".")
+    fmt = (fmt or Path(output_path).suffix).lower().lstrip(".")
     if fmt not in FORMATS:
         raise AssemblyError(f"Unsupported output format '{fmt}'. Choose from: {', '.join(FORMATS)}")
 
     output_path = Path(output_path).with_suffix(f".{fmt}")
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    bitrate = bitrate or ec.M4B_BITRATE
+    bitrate = bitrate or defaults.BITRATE
     needs_tempo = speed is not None and abs(speed - 1.0) > 0.001
     suffixes = {Path(s).suffix.lower() for s in segments}
 
-    with tempfile.TemporaryDirectory(prefix="echo-assemble-") as tmp:
+    with tempfile.TemporaryDirectory(prefix="echo-assemble-", dir=scratch_dir) as tmp:
         tmpdir = Path(tmp)
         listing = _concat_list([Path(s) for s in segments], tmpdir)
 
@@ -237,10 +244,13 @@ def assemble(
         cmd.append(str(output_path))
         _run(cmd)
 
+    if fmt == "mp3" and chapters:
+        write_mp3_chapters(output_path, chapters)
+
     duration = audio_duration_ms(output_path) / 1000
     log.info(
         f"Created {output_path} — {duration / 60:.1f} minutes"
-        + (f", {len(chapters)} chapter(s)" if (fmt == "m4b" and chapters) else "")
+        + (f", {len(chapters)} chapter(s)" if chapters else "")
     )
     return output_path
 

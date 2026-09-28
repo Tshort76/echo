@@ -25,7 +25,7 @@ not a string — that is what makes chapters, skip-lists and timings possible.
 python -m venv .venv
 source .venv/bin/activate            # Windows: .\.venv\Scripts\Activate.ps1
 pip install -r requirements.txt
-brew install ffmpeg                  # required to join audio / write M4B
+# ffmpeg comes from the imageio-ffmpeg wheel; no brew install needed
 ```
 
 **Two virtualenvs already exist in this checkout, and which one you use matters:**
@@ -132,34 +132,42 @@ engine, voice, speed, format, appearance — are unaffected; they don't go throu
 ## Architecture
 
 ```
-echo/
-  core.py          # Public API: file_to_audio(), extract_document(), build_script(),
-                   #   convert_to_text(), preview_voice()
-  document.py      # The data model: Block/BlockKind, Document, Utterance/Chapter/Script, Timing, Segment
-  normalize.py     # Rules normalization, page-artifact detection, Script assembly, optional LLM normalizers
-  gutenberg.py     # Project Gutenberg: search via Gutendex, ranked results, cached downloads, cover art
-  research.py      # Gemini Deep Research via the interactions agent API (background + polling)
-  paths.py         # resource_path(): resolves bundled data in a checkout AND a frozen build
-  constants.py     # Env-driven config (separate int/float/bool readers)
-  extractors/
-    __init__.py    # extract() dispatch on suffix + Docling escalation for sparse PDFs
-    markdown.py    # markdown -> Block list (shared by .md files and pymupdf4llm output)
-    text.py        # .txt/.md, Gutenberg stripping, plain-text heading detection, to_chunks()
-    pdfs.py        # pymupdf4llm -> Document, PyMuPDF built-in OCR, annotation extraction
-    misc.py        # EPUB via EbookLib + BeautifulSoup, spine reading order
-    docling_ext.py # Optional Docling backend for hard documents
+echo/              # THE LIBRARY — `from echo import speak_chapters`. Never imports echo_app or gui.
+  __init__.py      # The public API: __all__ + __version__. Anything not exported here is internal.
+  speech.py        # speak_chapters / aspeak_chapters (Chapter(title, text) in), speak_script, SpeechResult
+  script.py        # Utterance, ScriptChapter, Script, Timing, Segment
+  text.py          # split_text(): paragraph -> sentence -> word splitting to an engine's limit
+  defaults.py      # Plain constants (engine, speed, chunk size, retries, bitrate). No env reads.
+  errors.py        # EchoError > EngineUnavailable, SynthesisError, AssemblyError
+  paths.py         # package_data() (echo/data/), frozen_path() (sys._MEIPASS)
+  data/voices.csv  # The edge voice catalogue, shipped as package data
   audio/
     engines/
-      base.py      # SpeechEngine protocol, BaseEngine, VoiceInfo, SynthOutput, EngineUnavailable
+      base.py      # SpeechEngine protocol, BaseEngine, VoiceInfo, SynthOutput
       __init__.py  # Registry: get_engine(), available_engines(), all_voices(), aliases
       edge.py      # edge-tts (default); rate-string conversion; WordBoundary timings
       google.py    # GeminiEngine (API key) + GoogleCloudEngine (ADC, free tier)
       mlx.py       # mlx-audio on Apple Silicon; Kokoro voice decoding + espeak wiring
-    tts.py         # Orchestration: retry, resume, bounded concurrency, progress logging
-    assemble.py    # ffmpeg concat, M4B chapters, atempo speed, SRT, durations
-    mp3_utils.py   # configure_ffmpeg(); ID3 + MP4 tags and cover art
+    tts.py         # Orchestration: retry, resume, bounded concurrency, progress callback + log line
+    assemble.py    # ffmpeg concat, chapters (M4B native, MP3 via mp3_utils), atempo speed, SRT, durations
+    mp3_utils.py   # configure_ffmpeg(); ID3 CHAP/CTOC chapters; ID3 + MP4 tags and cover art
     wav.py         # Minimal WAV writing for engines that return raw samples
-    voices.py      # edge-tts voice cache maintenance (resources/voices.csv)
+    voices.py      # edge-tts voice cache maintenance (echo/data/voices.csv)
+echo_app/          # THE APP — files in, audiobooks out. Built on the library.
+  core.py          # file_to_audio(), extract_document(), build_script(), convert_to_text(), preview_voice()
+  constants.py     # .env + env-driven config, loaded at import. App-only: passed to the library as arguments.
+  document.py      # Block/BlockKind, Document (re-exports the Script types from echo.script)
+  normalize.py     # Rules normalization, page-artifact detection, Script assembly, optional LLM normalizers
+  gutenberg.py     # Project Gutenberg: search via Gutendex, ranked results, cached downloads, cover art
+  research.py      # Gemini Deep Research via the interactions agent API (background + polling)
+  paths.py         # resource_path(): app resources in a checkout AND a frozen build
+  extractors/
+    __init__.py    # extract() dispatch on suffix + Docling escalation for sparse PDFs
+    markdown.py    # markdown -> Block list (shared by .md files and pymupdf4llm output)
+    text.py        # .txt/.md, Gutenberg stripping, plain-text heading detection
+    pdfs.py        # pymupdf4llm -> Document, PyMuPDF built-in OCR, annotation extraction
+    misc.py        # EPUB via EbookLib + BeautifulSoup, spine reading order
+    docling_ext.py # Optional Docling backend for hard documents
 create_audio.py    # CLI
 bulk_generate.py   # Folder-at-a-time CLI
 echo_gui.py        # Launcher for the optional desktop GUI
@@ -174,6 +182,47 @@ echo_gui.spec      # PyInstaller config (bundles whichever optional engines are 
 packaging/         # build_app.py, fetch_ffmpeg.py, icons/
 test/              # pytest suite; conftest.py anchors demo-data paths on __file__
 ```
+
+### Library and app: the split
+
+`echo` is a text-to-speech library that other projects depend on (weekly-news was
+the first; its requirements are what shaped the API). `echo_app`, the CLI and the
+GUI are one consumer of it. The dependency direction is strictly one way: the
+library never imports `echo_app` or `gui`. `test_speech.py` checks this in a
+subprocess, together with "importing echo reads no `.env` and leaves `os.environ`
+alone".
+
+- **Configuration is by argument.** `echo/defaults.py` holds plain constants. The
+  app's `.env` knobs (`DEFAULT_ENGINE`, `DEFAULT_VOICE`, `M4B_BITRATE`,
+  `DEFAULT_MAX_RETRIES`…) are read by `echo_app/constants.py` and passed in by
+  `echo_app/core.py`. That includes `core.get_engine()`, which wraps the registry
+  with `DEFAULT_ENGINE`. The exception is engine credentials and model choice
+  (`GEMINI_API_KEY`, `MLX_TTS_MODEL`…): engines read those from `os.environ`
+  when they are constructed, never at import.
+- **One synthesis-and-assembly path.** `file_to_audio` builds a Script (extract,
+  normalize), then hands it to `echo.speech.speak_script`. Chapter marks, the
+  speed scaling of marks, the transcript and tagging all happen there.
+- **Dependencies differ by audience.** `pyproject.toml` declares *ranges*: the
+  library core is `edge-tts`, `mutagen` and `imageio-ffmpeg`, and the app's
+  parsers sit under the `app` extra. `requirements*.txt` stay *pinned* for the
+  frozen app.
+- **ffmpeg comes with pip.** `configure_ffmpeg()` looks in three places, in order:
+  the frozen app's `bin/ffmpeg`, the `imageio-ffmpeg` wheel's static build (which
+  has libmp3lame and aac), then `PATH`. The spec excludes `imageio_ffmpeg` when it
+  bundles its own binary.
+- **Scratch and resume.** A call makes a private directory under `work_dir` and
+  removes it on return or raise. Resume is opt-in through `resume_dir`. The app
+  passes `<name>_chunks` beside the output, which keeps the old CLI behaviour.
+  Chunk files are named `chunk_<digest>_<index>`, where the digest covers engine,
+  voice, speed and text. A reused directory therefore cannot splice last week's
+  audio into this week's file.
+- **MP3 chapter frame order is deliberate.** mutagen stores frames sorted by
+  encoded size. Readers that ignore the `CTOC` (ffmpeg, and players built on it)
+  list chapters in stored order. `_chronological_ids()` pads the element ids so
+  that stored order is time order.
+- **Marks are scaled when ffmpeg applies the speed.** Segment durations are
+  measured before `atempo` runs. Before the split, a 1.5× Gemini M4B had chapter
+  marks that drifted late.
 
 ### The `SpeechEngine` seam
 
@@ -500,9 +549,10 @@ against the old rule before being relied on.
 `python packaging/build_app.py` freezes the GUI with PyInstaller (onedir). Two
 correctness pieces:
 
-- `echo/paths.py::resource_path()` resolves bundled data from `sys._MEIPASS` when
-  frozen and from the repo root otherwise — used by `constants.py` (voices.csv) and
-  `mp3_utils.configure_ffmpeg()` (bundled ffmpeg at `bin/ffmpeg`).
+- Bundled data is found in two ways. `echo/paths.py::package_data()` finds the
+  library's own data, `echo/data/voices.csv`, which the spec bundles under
+  `echo/data`. `frozen_path()` finds the vendored ffmpeg at `bin/ffmpeg` under
+  `sys._MEIPASS`. App resources go through `echo_app/paths.py::resource_path()`.
 - `echo_gui.spec` probes for optional engine packages and adds them to
   `hiddenimports` when installed, `excludes` when not. Engines are imported lazily,
   so static analysis cannot see them; without this the packaged app would silently
@@ -515,8 +565,8 @@ decisions already made (macOS-only, M4B default, LLM normalization optional, Clo
 TTS needs ADC rather than an API key) plus explicit non-goals. **Read it before
 proposing direction changes** — several entries exist specifically to stop settled
 questions being re-opened. Update it when work lands. Its "Where we stand" header
-carries anything urgent and transient — check that first; as of 2 Aug 2026 it flags
-an untracked `gui/jobs.py` that leaves HEAD unimportable.
+carries anything urgent and transient — check that first; as of 27 Sep 2026 it lists
+the follow-ups from the library/app split.
 
 ## Conventions
 
@@ -527,5 +577,5 @@ an untracked `gui/jobs.py` that leaves HEAD unimportable.
 - Prefer failing loudly with an actionable message over degrading silently. A
   finished audiobook must never be missing content without an error.
 - **`git status` before calling work done.** The suite runs against the working
-  tree, so a green 385-test run says nothing about whether a new module was ever
+  tree, so a green test run says nothing about whether a new module was ever
   `git add`ed — which is exactly how `gui/jobs.py` shipped a broken HEAD (BACKLOG §2).

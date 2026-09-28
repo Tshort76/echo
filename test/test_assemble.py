@@ -7,7 +7,7 @@ import pytest
 
 import echo.audio.assemble as asm
 from echo.audio.wav import write_float_wav, write_pcm16_wav
-from echo.document import Timing
+from echo_app.document import Timing
 
 HAVE_FFMPEG = asm.configure_ffmpeg() is not None
 

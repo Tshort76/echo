@@ -2,8 +2,10 @@
 # machine-learning runtimes, no model weights and no local LLM: every voice comes
 # from an API call.
 #
-# Versions are pinned because this project is frozen into a shipped app — the
-# binary you build next month should be the one you tested.
+# Versions are pinned because the app is frozen into a shipped binary — the one
+# you build next month should be the one you tested. The library's own
+# dependencies, in pyproject.toml, are ranges instead: a library that pins
+# exactly cannot share an environment with anything else.
 #
 #     pip install -r requirements.txt
 #     python create_audio.py book.epub          # edge-tts voices, no credentials
@@ -24,11 +26,13 @@
 
 python-dotenv==1.2.2        # .env configuration
 edge-tts==7.2.8             # default TTS engine (Microsoft Edge voices)
-mutagen==1.48.1             # ID3/MP4 tags, cover art, duration probing
+mutagen==1.48.1             # ID3/MP4 tags and chapters, cover art, duration probing
+imageio-ffmpeg==0.6.0       # a static ffmpeg per platform, so no separate install
 pymupdf==1.28.0             # PDF text extraction and built-in Tesseract OCR
 EbookLib==0.20              # EPUB parsing
 beautifulsoup4==4.15.0      # EPUB/HTML text extraction
 
-# Audio is joined by ffmpeg (see echo/audio/assemble.py), not a Python library.
-# Install it with `brew install ffmpeg`, or vendor one for a packaged build with
+# Audio is joined by ffmpeg (see echo/audio/assemble.py). imageio-ffmpeg ships a
+# static build with the MP3 and AAC encoders for macOS, Linux and Windows, so a pip
+# install needs nothing else. A packaged build vendors its own instead:
 # `python packaging/fetch_ffmpeg.py`.

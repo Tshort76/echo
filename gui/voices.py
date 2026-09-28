@@ -8,7 +8,8 @@ reports itself unavailable instead of failing when a conversion starts.
 
 from __future__ import annotations
 
-from echo.audio.engines import VoiceInfo, available_engines, get_engine
+from echo.audio.engines import VoiceInfo, available_engines
+from echo_app.core import get_engine
 
 __all__ = [
     "VoiceInfo",

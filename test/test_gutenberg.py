@@ -8,7 +8,7 @@ import json
 
 import pytest
 
-import echo.gutenberg as gb
+import echo_app.gutenberg as gb
 
 # A trimmed Gutendex payload, shaped exactly like the real one.
 AURELIUS = {
@@ -273,7 +273,7 @@ class TestDownload:
         import logging
 
         self._stub_bytes(monkeypatch)
-        with caplog.at_level(logging.WARNING, logger="echo.gutenberg"):
+        with caplog.at_level(logging.WARNING, logger="echo_app.gutenberg"):
             gb.download(book(copyright=True), dest_dir=tmp_path)
         assert any("copyright" in m.lower() for m in caplog.messages)
 

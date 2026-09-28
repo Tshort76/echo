@@ -16,13 +16,18 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 from pathlib import Path
 
-import echo.constants as ec
 from echo.audio.engines.base import BaseEngine, EngineUnavailable, SynthOutput, VoiceInfo
 from echo.audio.wav import write_pcm16_wav
 
 log = logging.getLogger(__name__)
+
+
+def _gemini_key() -> str | None:
+    """Read at construction, not import: the library never loads a .env itself."""
+    return os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")
 
 #: Gemini TTS returns signed 16-bit little-endian mono PCM at 24 kHz.
 _PCM_RATE = 24_000
@@ -74,16 +79,16 @@ class GeminiEngine(BaseEngine):
     supports_speed = False
 
     def __init__(self, model: str = None, api_key: str = None):
-        self.model = model or ec.GEMINI_TTS_MODEL
+        self.model = model or os.environ.get("GEMINI_TTS_MODEL", "gemini-2.5-flash-preview-tts")
         # `is not None`, not `or`: an explicit "" means "no key", and `or` would
         # silently fall back to the environment.
-        self._api_key = api_key if api_key is not None else ec.GEMINI_API_KEY
+        self._api_key = api_key if api_key is not None else _gemini_key()
         self._client = None
 
     def check_available(self) -> None:
         if not self._api_key:
             raise EngineUnavailable(
-                "Gemini TTS needs an API key. Set GEMINI_API_KEY in your .env "
+                "Gemini TTS needs an API key. Set GEMINI_API_KEY in the environment (or in echo's .env) "
                 "(create one at https://aistudio.google.com/apikey)."
             )
         try:
@@ -148,7 +153,7 @@ class GoogleCloudEngine(BaseEngine):
     supports_speed = True
 
     def __init__(self, voice: str = None):
-        self._voice = voice or ec.GOOGLE_CLOUD_VOICE
+        self._voice = voice or os.environ.get("GOOGLE_CLOUD_VOICE", "en-GB-Neural2-C")
         self._client = None
 
     def check_available(self) -> None:

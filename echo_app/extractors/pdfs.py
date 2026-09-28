@@ -14,9 +14,9 @@ from typing import Optional
 
 import pymupdf as pp
 
-from echo.document import Block, Document
-from echo.extractors.markdown import blocks_from_markdown
-from echo.extractors.text import blocks_from_plain_text
+from echo_app.document import Block, Document
+from echo_app.extractors.markdown import blocks_from_markdown
+from echo_app.extractors.text import blocks_from_plain_text
 
 log = logging.getLogger(__name__)
 

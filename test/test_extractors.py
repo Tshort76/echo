@@ -2,10 +2,10 @@
 
 import pytest
 
-import echo.constants as ec
-import echo.core as core
-from echo.document import BlockKind
-from echo.extractors import SUPPORTED_SUFFIXES, extract
+import echo_app.constants as ec
+import echo_app.core as core
+from echo_app.document import BlockKind
+from echo_app.extractors import SUPPORTED_SUFFIXES, extract
 
 
 class TestDispatch:
@@ -113,7 +113,7 @@ class TestPdf:
     def test_a_pdf_still_converts_without_the_layout_backend(self, demo_data, monkeypatch):
         """The lite install has no pymupdf4llm (it would drag in onnxruntime), so
         PDFs must fall back to PyMuPDF's own text layer rather than failing."""
-        import echo.extractors.pdfs as pdfs
+        import echo_app.extractors.pdfs as pdfs
 
         monkeypatch.setattr(pdfs, "layout_markdown", lambda *_a, **_kw: None)
         doc = core.extract_document(demo_data / "america_against_america_sample.pdf")
@@ -130,7 +130,7 @@ class TestPdf:
         """A missing optional dependency is a downgrade, not an error."""
         import builtins
 
-        import echo.extractors.pdfs as pdfs
+        import echo_app.extractors.pdfs as pdfs
 
         real_import = builtins.__import__
 

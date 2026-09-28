@@ -11,8 +11,8 @@ from pathlib import Path
 from bs4 import BeautifulSoup
 from ebooklib import ITEM_DOCUMENT, epub
 
-from echo.document import Block, BlockKind, Document
-from echo.extractors.text import strip_gutenberg_blocks
+from echo_app.document import Block, BlockKind, Document
+from echo_app.extractors.text import strip_gutenberg_blocks
 
 log = logging.getLogger(__name__)
 

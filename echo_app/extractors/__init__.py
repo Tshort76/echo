@@ -1,4 +1,4 @@
-"""Extractors: file on disk -> :class:`~echo.document.Document`.
+"""Extractors: file on disk -> :class:`~echo_app.document.Document`.
 
 One dispatch point, one protocol. Adding a format means adding a function and a
 suffix to :data:`_BY_SUFFIX`, not touching the pipeline.
@@ -14,7 +14,7 @@ import logging
 from pathlib import Path
 from typing import Callable, Protocol
 
-from echo.document import Document
+from echo_app.document import Document
 
 log = logging.getLogger(__name__)
 
@@ -26,7 +26,7 @@ class Extractor(Protocol):
 
 
 def _extract_pdf(path: Path, **configs) -> Document:
-    from echo.extractors.pdfs import extract_pdf
+    from echo_app.extractors.pdfs import extract_pdf
 
     doc = extract_pdf(
         path,
@@ -57,7 +57,7 @@ def _looks_sparse(doc: Document) -> bool:
 
 def _try_docling(path: Path, **configs) -> Document | None:
     try:
-        from echo.extractors.docling_ext import extract_with_docling
+        from echo_app.extractors.docling_ext import extract_with_docling
     except ImportError:
         log.info("Docling is not installed (`pip install docling`); keeping the pymupdf4llm result")
         return None
@@ -69,19 +69,19 @@ def _try_docling(path: Path, **configs) -> Document | None:
 
 
 def _extract_txt(path: Path, **_configs) -> Document:
-    from echo.extractors.text import extract_txt
+    from echo_app.extractors.text import extract_txt
 
     return extract_txt(path)
 
 
 def _extract_md(path: Path, **_configs) -> Document:
-    from echo.extractors.text import extract_markdown
+    from echo_app.extractors.text import extract_markdown
 
     return extract_markdown(path)
 
 
 def _extract_epub(path: Path, **_configs) -> Document:
-    from echo.extractors.misc import extract_epub
+    from echo_app.extractors.misc import extract_epub
 
     return extract_epub(path)
 

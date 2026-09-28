@@ -1,12 +1,14 @@
-"""Drive a :class:`~echo.document.Script` through a speech engine.
+"""Drive a :class:`~echo.script.Script` through a speech engine.
 
 What changed here, beyond becoming engine-agnostic:
 
 * **Retry.** Every engine fails transiently — edge-tts's unofficial endpoint
   returns websocket 403s, cloud engines rate-limit. Each utterance gets several
   attempts with backoff.
-* **Resume.** Chunk files are keyed by index and kept until assembly succeeds, so
-  a re-run skips everything already on disk instead of re-synthesizing a book.
+* **Resume.** Chunk files are named by position *and* by a digest of what they
+  say (engine, voice, speed, text), and kept until assembly succeeds, so a
+  re-run skips everything already on disk — and a chunk directory reused for
+  different text can never splice the old audio into the new file.
 * **No partial success.** ``asyncio.gather`` used to run without
   ``return_exceptions``, so one failure anywhere aborted the run; now every
   utterance is attempted and the summary names what failed, rather than a
@@ -16,29 +18,42 @@ What changed here, beyond becoming engine-agnostic:
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import logging
-import time
 from pathlib import Path
+from typing import Callable
 
-import echo.constants as ec
+from echo import defaults
 from echo.audio.engines import EngineUnavailable, SpeechEngine, get_engine
-from echo.document import Script, Segment, Utterance
-from echo.normalize import build_script
+from echo.errors import SynthesisError
+from echo.script import Script, Segment, Utterance
 
 log = logging.getLogger(__name__)
 
-
-class SynthesisError(RuntimeError):
-    """Raised when utterances could not be synthesized after retries."""
+#: ``on_progress(done, total)``, in utterances. Called from the event loop thread.
+ProgressCallback = Callable[[int, int], None]
 
 
 def chunks_dir_for(output_path: Path) -> Path:
+    """The app's resume directory convention: ``<name>_chunks`` beside the output."""
     output_path = Path(output_path)
     return output_path.parent / f"{output_path.stem}_chunks"
 
 
-def _segment_path(chunks_dir: Path, index: int, suffix: str) -> Path:
-    return chunks_dir / f"chunk_{index:05d}{suffix}"
+def _segment_path(chunks_dir: Path, index: int, engine: SpeechEngine, voice: str, speed: float, text: str) -> Path:
+    key = "\x1f".join((engine.name, voice, f"{speed:.4f}", text))
+    digest = hashlib.sha1(key.encode("utf-8")).hexdigest()[:10]
+    return chunks_dir / f"chunk_{digest}_{index:05d}{engine.audio_suffix}"
+
+
+def _report(on_progress: ProgressCallback | None, done: int, total: int) -> None:
+    """A broken progress callback must not fail the utterance it reports on."""
+    if on_progress is None:
+        return
+    try:
+        on_progress(done, total)
+    except Exception:
+        log.exception("on_progress callback raised; ignoring")
 
 
 def _usable(path: Path) -> int:
@@ -92,13 +107,21 @@ async def synthesize_script(
     speed: float = None,
     chunks_dir: Path = None,
     resume: bool = True,
+    max_retries: int = None,
+    retry_backoff: float = None,
+    on_progress: ProgressCallback = None,
 ) -> list[Segment]:
-    """Synthesize every utterance in ``script``, returning segments in order."""
+    """Synthesize every utterance in ``script``, returning segments in order.
+
+    ``on_progress(done, total)`` is called once up front and after each utterance.
+    """
     engine = engine or get_engine()
     engine.check_available()
     voice = voice or engine.default_voice()
-    speed = ec.DEFAULT_SPEED if speed is None else speed
+    speed = defaults.SPEED if speed is None else speed
     engine_speed = speed if engine.supports_speed else 1.0
+    max_retries = defaults.MAX_RETRIES if max_retries is None else max(1, max_retries)
+    retry_backoff = defaults.RETRY_BACKOFF_SECONDS if retry_backoff is None else retry_backoff
 
     chunks_dir = Path(chunks_dir)
     chunks_dir.mkdir(parents=True, exist_ok=True)
@@ -106,11 +129,14 @@ async def synthesize_script(
     utterances = script.utterances()
     total_chars = max(1, script.char_count)
     segments: list[Segment | None] = [None] * len(utterances)
+    paths = [
+        _segment_path(chunks_dir, i, engine, u.voice or voice, engine_speed, u.text) for i, u in enumerate(utterances)
+    ]
 
     reused = 0
     todo: list[int] = []
     for i in range(len(utterances)):
-        path = _segment_path(chunks_dir, i, engine.audio_suffix)
+        path = paths[i]
         duration = _usable(path) if resume else 0
         if duration:
             segments[i] = Segment(index=i, path=path, duration_ms=duration)
@@ -120,6 +146,8 @@ async def synthesize_script(
 
     if reused:
         log.info(f"Resuming: {reused} of {len(utterances)} chunk(s) already synthesized in {chunks_dir}")
+    done = reused
+    _report(on_progress, done, len(utterances))
     if not todo:
         log.info("Progress Report: 100%")
         return [s for s in segments if s is not None]
@@ -136,7 +164,7 @@ async def synthesize_script(
     progress_lock = asyncio.Lock()
 
     async def worker(index: int) -> Segment:
-        nonlocal done_chars
+        nonlocal done_chars, done
         async with semaphore:
             segment = await _synthesize_one(
                 engine,
@@ -144,14 +172,16 @@ async def synthesize_script(
                 utterances[index],
                 voice,
                 engine_speed,
-                _segment_path(chunks_dir, index, engine.audio_suffix),
-                ec.MAX_RETRIES,
-                ec.RETRY_BACKOFF_SECONDS,
+                paths[index],
+                max_retries,
+                retry_backoff,
             )
         async with progress_lock:
             done_chars += len(utterances[index])
+            done += 1
             # The GUI parses this exact string into its progress bar.
             log.info(f"Progress Report: {done_chars / total_chars:.0%}")
+            _report(on_progress, done, len(utterances))
         return segment
 
     results = await asyncio.gather(*(worker(i) for i in todo), return_exceptions=True)
@@ -171,49 +201,3 @@ async def synthesize_script(
         )
 
     return [s for s in segments if s is not None]
-
-
-def text_to_mp3(text: str, mp3_path: str, voice: str = None, speed: float = None, engine: str = None):
-    """Convert a string straight to audio.
-
-    Kept as the simple entry point for callers that have text in hand and don't
-    need document structure (notebooks, the GUI's preview, small scripts).
-    """
-    from echo.audio import assemble as asm  # noqa: PLC0415
-
-    started = time.perf_counter()
-    output_path = Path(mp3_path)
-    resolved = get_engine(engine)
-    resolved.check_available()
-
-    script = build_script(
-        _document_from_text(text),
-        chunk_size=min(ec.CHUNK_SIZE, resolved.max_chars),
-    )
-    chunks_dir = chunks_dir_for(output_path)
-
-    segments = asyncio.run(
-        synthesize_script(script, engine=resolved, voice=voice, speed=speed, chunks_dir=chunks_dir)
-    )
-    speed = ec.DEFAULT_SPEED if speed is None else speed
-    asm.assemble(
-        [s.path for s in segments],
-        output_path,
-        fmt=output_path.suffix.lstrip(".") or "mp3",
-        speed=None if resolved.supports_speed else speed,
-    )
-    asm.cleanup(chunks_dir)
-    log.info(f"{output_path} created in {(time.perf_counter() - started) / 60:.2f} minutes")
-    return output_path
-
-
-def _document_from_text(text: str):
-    from echo.document import Document
-    from echo.extractors.text import blocks_from_plain_text
-
-    return Document(blocks=blocks_from_plain_text(text))
-
-
-def available_voices(engine: str = None) -> list[str]:
-    """Voice ids for one engine (or the default engine)."""
-    return [v.id for v in get_engine(engine).voices()]

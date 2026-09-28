@@ -18,7 +18,7 @@ import logging
 import platform
 from pathlib import Path
 
-import echo.constants as ec
+import os
 from echo.audio.engines.base import BaseEngine, EngineUnavailable, SynthOutput, VoiceInfo
 from echo.audio.wav import write_float_wav
 
@@ -115,9 +115,10 @@ class MlxEngine(BaseEngine):
     max_chars = 4000
     supports_speed = True
 
-    def __init__(self, model_id: str = None, voice: str = None):
-        self.model_id = model_id or ec.MLX_TTS_MODEL
-        self._voice = voice or ec.MLX_TTS_VOICE
+    def __init__(self, model_id: str = None, voice: str = None, lang_code: str = None):
+        self.model_id = model_id or os.environ.get("MLX_TTS_MODEL", "prince-canuma/Kokoro-82M")
+        self._voice = voice or os.environ.get("MLX_TTS_VOICE", "bf_emma")
+        self.lang_code = lang_code if lang_code is not None else os.environ.get("MLX_LANG_CODE", "")
         self._model = None
 
     # ── availability ────────────────────────────────────────────────────────
@@ -182,8 +183,8 @@ class MlxEngine(BaseEngine):
         return self._voice
 
     def lang_code_for(self, voice: str) -> str:
-        if ec.MLX_LANG_CODE:
-            return ec.MLX_LANG_CODE
+        if self.lang_code:
+            return self.lang_code
         # Kokoro takes the single-letter code that prefixes its voice names.
         return voice[0] if _is_kokoro(self.model_id) and voice else "a"
 

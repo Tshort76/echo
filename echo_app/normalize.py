@@ -24,9 +24,10 @@ from collections import Counter, defaultdict
 from statistics import median
 from typing import Protocol
 
-import echo.constants as ec
-from echo.document import Block, BlockKind, Chapter, Document, Script, Utterance
-from echo.extractors.text import to_chunks
+import echo_app.constants as ec
+from echo.script import Script, ScriptChapter, Utterance
+from echo.text import split_text
+from echo_app.document import Block, BlockKind, Document
 
 log = logging.getLogger(__name__)
 
@@ -512,7 +513,7 @@ def build_script(
     sections.append((heading, body))
     sections = _coalesce_small_sections(sections, min_chapter_chars)
 
-    chapters: list[Chapter] = []
+    chapters: list[ScriptChapter] = []
     for i, (title, prelude, runs) in enumerate(sections):
         body = "\n\n".join(r for r in runs if r.strip())
         if not body.strip() and not prelude and title and _NAVIGATION_HEADINGS.match(title):
@@ -528,10 +529,10 @@ def build_script(
         text = "\n\n".join(p for p in parts if p.strip())
         if not text.strip():
             continue
-        pieces = [normalizer.normalize(c) for c in to_chunks(text, chunk_size)]
+        pieces = [normalizer.normalize(c) for c in split_text(text, chunk_size)]
         utterances = [Utterance(text=p) for p in pieces if p.strip()]
         if utterances:
-            chapters.append(Chapter(title=_chapter_title(i, title, doc.title), utterances=utterances))
+            chapters.append(ScriptChapter(title=_chapter_title(i, title, doc.title), utterances=utterances))
 
     if not chapters:
         raise ValueError("Nothing to narrate: the document produced no spoken text")

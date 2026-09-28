@@ -14,8 +14,8 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 
-from echo.document import BlockKind, Document
-from echo.extractors.markdown import blocks_from_markdown
+from echo_app.document import BlockKind, Document
+from echo_app.extractors.markdown import blocks_from_markdown
 
 log = logging.getLogger(__name__)
 

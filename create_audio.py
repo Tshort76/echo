@@ -4,14 +4,14 @@ import logging
 import sys
 from pathlib import Path
 
-import echo.constants as ec
-import echo.core as core
-import echo.gutenberg as gutenberg
+import echo_app.constants as ec
+import echo_app.core as core
+import echo_app.gutenberg as gutenberg
 from echo.audio.assemble import FORMATS
 from echo.audio.engines import EngineUnavailable, available_engines, engine_names
-from echo.extractors import SUPPORTED_SUFFIXES
-from echo.normalize import NORMALIZER_NAMES, NormalizerUnavailable
-from echo.research import AGENTS, ResearchError, research
+from echo_app.extractors import SUPPORTED_SUFFIXES
+from echo_app.normalize import NORMALIZER_NAMES, NormalizerUnavailable
+from echo_app.research import AGENTS, ResearchError, research
 
 log = logging.getLogger(__name__)
 

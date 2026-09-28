@@ -47,9 +47,9 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-import echo.constants as ec
+import echo_app.constants as ec
 from echo.audio.assemble import FORMATS
-from echo.normalize import available_normalizers
+from echo_app.normalize import available_normalizers
 from gui import sources as gs
 from gui import style as gstyle
 from gui import voices as gv
@@ -745,7 +745,7 @@ class ResearchDialog(QDialog):
             self.status.setText("Please give this a name — it names the audio file.")
             return
 
-        from echo.research import DeepResearcher
+        from echo_app.research import DeepResearcher
 
         ok, reason = DeepResearcher().is_available()
         if not ok:
@@ -1059,11 +1059,12 @@ class ConvertTab(QWidget):
 
     def _on_engine_changed(self) -> None:
         """Repopulate the voice list for the newly chosen engine."""
-        from echo.audio.engines import get_engine
+        from echo_app.core import default_voice as app_default_voice
+        from echo_app.core import get_engine
 
         engine_name = self.current_engine()
         try:
-            default_voice = get_engine(engine_name).default_voice()
+            default_voice = app_default_voice(get_engine(engine_name))
         except Exception:
             default_voice = None
         self.voice_picker.set_engine(engine_name, default_voice)
@@ -1494,8 +1495,8 @@ def main() -> int:
     apply_theme(app)
     gstyle.watch_system_theme(app)  # follow live OS light/dark flips in system mode
 
-    # Locate ffmpeg up front (bundled with a frozen build, otherwise on PATH) so a
-    # missing install is reported before a conversion has run.
+    # Locate ffmpeg up front (bundled with a frozen build, else imageio-ffmpeg's, else
+    # PATH) so a missing install is reported before a conversion has run.
     from echo.audio.mp3_utils import configure_ffmpeg
 
     if configure_ffmpeg() is None:

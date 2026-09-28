@@ -35,7 +35,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable
 
-import echo.constants as ec
+import echo_app.constants as ec
 
 log = logging.getLogger(__name__)
 
@@ -91,7 +91,7 @@ class ResearchResult:
     interaction_id: str | None = None
 
     def as_meta(self) -> dict:
-        """Metadata for :func:`echo.core.file_to_audio`."""
+        """Metadata for :func:`echo_app.core.file_to_audio`."""
         return {"title": self.name.replace("_", " ").strip() or self.topic[:60],
                 "author": "Gemini Deep Research"}
 
@@ -117,7 +117,7 @@ def to_narration_source(report: str) -> str:
 
     Removes a trailing references/sources section and bracketed citation markers.
     Everything else — headings, prose — is left for
-    :mod:`echo.extractors.markdown`, which already drops tables, code and figures.
+    :mod:`echo_app.extractors.markdown`, which already drops tables, code and figures.
     """
     text = report or ""
     if not text.strip():
@@ -382,7 +382,7 @@ def research(
 ) -> ResearchResult:
     """Convenience wrapper: research ``topic`` and return the result.
 
-    ``keep=True`` persists the artefacts under :data:`echo.constants.RESEARCH_DIR`
+    ``keep=True`` persists the artefacts under :data:`echo_app.constants.RESEARCH_DIR`
     (gitignored) instead of a temp directory.
     """
     researcher = DeepResearcher()

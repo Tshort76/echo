@@ -13,10 +13,10 @@ import shutil
 import sys
 from pathlib import Path
 
-import echo.constants as ec
-import echo.core as core
+import echo_app.constants as ec
+import echo_app.core as core
 from echo.audio.assemble import FORMATS
-from echo.extractors import SUPPORTED_SUFFIXES
+from echo_app.extractors import SUPPORTED_SUFFIXES
 
 log = logging.getLogger(__name__)
 

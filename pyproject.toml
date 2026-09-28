@@ -1,47 +1,57 @@
 [project]
 name = "echo-tts"
-version = "0.2.0"
-description = "Turn PDFs, EPUBs, Markdown and text files into chaptered audiobooks"
+version = "0.3.0"
+description = "Text to chaptered speech: a TTS library with pluggable engines, plus an audiobook app"
 readme = "README.md"
 requires-python = ">=3.11"
 license = { file = "LICENSE" }
 
-# The lite install: no ML runtimes, no model weights, no local LLM. Every voice is
-# an API call. pymupdf4llm is deliberately *not* here — it pulls onnxruntime, ~180 MB
-# of ONNX inference, which is the wrong default for a cloud-voice user.
+# The library: `from echo import speak_chapters`. Ranges, not pins — a library that
+# pins exactly cannot share an environment with its caller. The app's pinned,
+# tested set lives in requirements*.txt. No PDF, EPUB or HTML parsing here; that
+# is the app's, under the `app` extra.
 dependencies = [
-    "python-dotenv==1.2.2",
-    "edge-tts==7.2.8",
-    "mutagen==1.48.1",
-    "pymupdf==1.28.0",
-    "EbookLib==0.20",
-    "beautifulsoup4==4.15.0",
+    "edge-tts>=7.2,<8",
+    "mutagen>=1.47,<2",
+    # A static ffmpeg for macOS, Linux and Windows, so a pip install is a working
+    # install with no `brew install` step.
+    "imageio-ffmpeg>=0.5,<1",
 ]
 
 [project.optional-dependencies]
-# The common case: cloud voices only, still nothing running locally.
-api = ["google-genai==2.14.0", "google-cloud-texttospeech==2.37.0"]
-# Gemini TTS + Google Cloud TTS engines, and the gemini normalizer.
-google = ["google-genai==2.14.0", "google-cloud-texttospeech==2.37.0"]
-# Structured PDF extraction: real heading detection, at the cost of onnxruntime.
-pdf-layout = ["pymupdf4llm==1.28.0"]
-# On-device synthesis on Apple Silicon. See requirements-local-llm.txt for the
-# Kokoro/misaki/Python-3.14 caveat.
-local = ["mlx-audio==0.4.6"]
+# Gemini TTS + Google Cloud TTS engines (and, for the app, research and the gemini normalizer).
+google = ["google-genai>=2.14,<3", "google-cloud-texttospeech>=2.37,<3"]
+api = ["echo-tts[google]"]
+# On-device synthesis on Apple Silicon. Kokoro works on Python 3.13 only today;
+# see requirements-local-llm.txt for the misaki/spaCy/espeak setup it needs.
+mlx = ["mlx-audio>=0.4.6,<0.5"]
+local = ["echo-tts[mlx]"]
+# The audiobook app: extraction from PDF/EPUB/HTML, .env configuration, the CLI.
+app = [
+    "python-dotenv>=1.0,<2",
+    "pymupdf>=1.26,<2",
+    "EbookLib>=0.18,<1",
+    "beautifulsoup4>=4.12,<5",
+]
+# Structured PDF extraction for the app: real heading detection, at the cost of onnxruntime.
+pdf-layout = ["echo-tts[app]", "pymupdf4llm>=1.28,<2"]
 # Structured extraction for documents the fast path mangles.
-docling = ["docling>=2.115.0"]
-gui = ["PySide6>=6.6"]
+docling = ["echo-tts[app]", "docling>=2.115.0"]
+gui = ["echo-tts[app]", "PySide6>=6.6"]
 dev = ["pytest>=8.0"]
 
 [project.scripts]
 echo-audio = "create_audio:main"
 
 [tool.setuptools]
-packages = ["echo", "echo.audio", "echo.audio.engines", "echo.extractors"]
+packages = ["echo", "echo.audio", "echo.audio.engines", "echo_app", "echo_app.extractors", "gui"]
 # The CLI entry points are top-level modules, not packages. Without listing them
 # here they are left out of an install, and the `echo-audio` console script fails
 # with ModuleNotFoundError: create_audio.
 py-modules = ["create_audio", "bulk_generate", "echo_gui"]
+
+[tool.setuptools.package-data]
+echo = ["data/*.csv", "py.typed"]
 
 [tool.pytest.ini_options]
 testpaths = ["test"]

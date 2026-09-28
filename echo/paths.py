@@ -1,11 +1,8 @@
-"""Resource-path resolution that works both in a normal checkout and when the
-app is frozen by PyInstaller.
+"""Locating data shipped with the library, and files bundled into a frozen app.
 
-PyInstaller unpacks bundled data files under ``sys._MEIPASS`` (both for one-file
-and one-dir builds). In a normal checkout there is no ``_MEIPASS``; data lives at
-the repo root (this file is ``echo/paths.py``, one level below it). Routing every
-bundled-resource lookup through :func:`resource_path` keeps the CLI working from
-any working directory *and* lets the packaged GUI find its data.
+Two different things. Package data (the edge voice catalogue) lives inside the
+``echo`` package, so it travels with a pip install. A frozen PyInstaller build
+additionally unpacks bundled files — its own ffmpeg — under ``sys._MEIPASS``.
 """
 
 from __future__ import annotations
@@ -13,14 +10,16 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
-# Repo root in a normal checkout (parent of the ``echo`` package).
-_REPO_ROOT = Path(__file__).resolve().parent.parent
+_PACKAGE_DIR = Path(__file__).resolve().parent
 
 
-def resource_path(relative: str | Path) -> Path:
-    """Absolute path to a bundled resource (e.g. ``"resources/voices.csv"``)."""
+def package_data(name: str) -> Path:
+    """Absolute path to a file under ``echo/data/``, in a checkout, an install or a frozen app."""
+    return _PACKAGE_DIR / "data" / name
+
+
+def frozen_path(relative: str | Path) -> Path | None:
+    """Path to a file bundled into a frozen build, or None when not frozen."""
     if getattr(sys, "frozen", False) and hasattr(sys, "_MEIPASS"):
-        base = Path(sys._MEIPASS)  # PyInstaller extraction dir
-    else:
-        base = _REPO_ROOT
-    return base / relative
+        return Path(sys._MEIPASS) / relative
+    return None

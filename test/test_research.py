@@ -6,8 +6,8 @@ the call shape, the polling loop, and every terminal status — not Google's ser
 
 import pytest
 
-import echo.research as research
-from echo.research import AGENTS, DeepResearcher, ResearchError, ResearchUnavailable
+import echo_app.research as research
+from echo_app.research import AGENTS, DeepResearcher, ResearchError, ResearchUnavailable
 
 REPORT = """# The Marine Chronometer
 
@@ -349,7 +349,7 @@ class TestArtefacts:
 
     def test_the_report_is_narratable_by_the_pipeline(self, tmp_path):
         """End to end through the real extractor: chapters, and no link furniture."""
-        import echo.core as core
+        import echo_app.core as core
 
         api = FakeInteractions()
         result = researcher().run("t", "chrono", client=FakeClient(api), keep_dir=tmp_path)

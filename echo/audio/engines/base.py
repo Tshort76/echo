@@ -12,7 +12,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Protocol, runtime_checkable
 
-from echo.document import Timing
+from echo.errors import EngineUnavailable
+from echo.script import Timing
 
 
 @dataclass(frozen=True, slots=True)
@@ -49,13 +50,6 @@ class SynthOutput:
     path: Path
     duration_ms: int = 0
     timings: list[Timing] = field(default_factory=list)
-
-
-class EngineUnavailable(RuntimeError):
-    """Raised when an engine's dependencies or credentials are missing.
-
-    Carries an actionable message: what to install, or which variable to set.
-    """
 
 
 @runtime_checkable

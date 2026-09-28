@@ -12,10 +12,10 @@ from pathlib import Path
 import pytest
 
 import echo.audio.tts as tts
-import echo.core as core
+import echo_app.core as core
 from echo.audio.engines.base import BaseEngine, EngineUnavailable, SynthOutput
 from echo.audio.wav import write_pcm16_wav
-from echo.document import Chapter, Script, Timing, Utterance
+from echo.script import Script, ScriptChapter, Timing, Utterance
 
 
 class FakeEngine(BaseEngine):
@@ -65,7 +65,7 @@ class FakeEngine(BaseEngine):
 def script_of(n: int) -> Script:
     return Script(
         title="Fake Book",
-        chapters=[Chapter(title=f"Chapter {i + 1}", utterances=[Utterance(f"Passage {i}.")]) for i in range(n)],
+        chapters=[ScriptChapter(title=f"Chapter {i + 1}", utterances=[Utterance(f"Passage {i}.")]) for i in range(n)],
     )
 
 
@@ -90,11 +90,21 @@ class TestHappyPath:
     def test_chunk_files_are_named_by_index(self, tmp_path):
         chunks = tmp_path / "chunks"
         run(script_of(3), FakeEngine(), chunks)
-        assert sorted(p.name for p in chunks.glob("*.wav")) == [
-            "chunk_00000.wav",
-            "chunk_00001.wav",
-            "chunk_00002.wav",
+        names = sorted(p.name for p in chunks.glob("*.wav"))
+        assert [n.rsplit("_", 1)[-1] for n in sorted(names, key=lambda n: n[-9:])] == [
+            "00000.wav",
+            "00001.wav",
+            "00002.wav",
         ]
+
+    def test_a_reused_directory_never_serves_audio_for_different_text(self, tmp_path):
+        chunks = tmp_path / "chunks"
+        run(script_of(2), FakeEngine(), chunks)
+        changed = script_of(2)
+        changed.chapters[1].utterances[0] = Utterance("Something else entirely.")
+        engine = FakeEngine()
+        run(changed, engine, chunks)
+        assert engine.texts == ["Something else entirely."]
 
 
 class TestRetry:
@@ -130,7 +140,7 @@ class TestResume:
         chunks = tmp_path / "chunks"
         script = script_of(4)
         run(script, FakeEngine(), chunks)
-        (chunks / "chunk_00002.wav").unlink()
+        next(chunks.glob("chunk_*_00002.wav")).unlink()
 
         second = FakeEngine()
         assert len(run(script, second, chunks)) == 4
@@ -141,7 +151,7 @@ class TestResume:
         chunks = tmp_path / "chunks"
         script = script_of(2)
         run(script, FakeEngine(), chunks)
-        (chunks / "chunk_00001.wav").write_bytes(b"")  # zero-length leftover
+        next(chunks.glob("chunk_*_00001.wav")).write_bytes(b"")  # zero-length leftover
 
         second = FakeEngine()
         run(script, second, chunks)
@@ -215,7 +225,7 @@ class TestVoicePreview:
         import sys
 
         code = (
-            "import echo.core as core;"
+            "import echo_app.core as core;"
             "print(core.preview_path('en-GB-SoniaNeural', engine='edge'))"
         )
         runs = {

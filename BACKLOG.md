@@ -10,18 +10,30 @@ reasoning outlives the checkbox.
 
 ---
 
-## Where we stand — 2 August 2026
+## Where we stand — 27 September 2026
+
+echo is now **a library plus an app**. `from echo import speak_chapters` takes
+titled chapters of text and returns one chaptered MP3 or M4B file. It was shaped by
+weekly-news's spec (`echo-as-library.md`), which is the first external consumer.
+`echo_app`, the CLI and the GUI sit on top of it. See CLAUDE.md, "Library and app:
+the split".
+
+Open follow-ups from the split:
+
+- [ ] **Tag `v0.3.0` and push it**, so weekly-news can depend on
+      `echo-tts @ git+…@v0.3.0`. (S)
+- [ ] **Piper as an engine?** weekly-news uses it today as a fallback. Whether echo
+      adds it or weekly-news drops it is still open. (M)
+- [ ] **The frozen app could drop its vendored ffmpeg** in favour of the
+      `imageio-ffmpeg` binary. The spec currently excludes that binary when a
+      vendored one exists, so nothing is bundled twice. The switch would remove
+      `packaging/fetch_ffmpeg.py`. (S)
+
+The August warning about an untracked `gui/jobs.py` is resolved: `768eefb`
+committed it.
 
 Phases P0–P3 of the review are done, plus several things that were later phases or
 were not in the review at all.
-
-> **⚠️ Fix this first: `gui/jobs.py` is untracked, and HEAD is broken without it.**
-> `7883b05` committed the queue but never `git add`ed its model file, so
-> `gui/app.py:56` and `test/test_gui.py:41` both import `gui.jobs` at HEAD while
-> the file exists only in this working tree. A fresh clone raises `ModuleNotFoundError`
-> on GUI import and fails test collection. It is **not** gitignored — just missed.
-> `git add gui/jobs.py && git commit` clears it. (Verified 2 Aug 2026 with
-> `git check-ignore`, which reports no rule matching it.)
 
 | | Shipped in |
 | --- | --- |
@@ -45,10 +57,11 @@ were not in the review at all.
 | GUI conversion queue — "Create audiobook" enqueues, jobs drain serially | `7883b05` ⚠️ |
 | Default speed 1.0×, was 1.25× — see §6 | `7883b05` |
 | Dual theme: Material-teal light + Nord dark, light/dark/system picker, follows the OS live | `5338fc6` |
+| Library/app split: `speak_chapters`, MP3 chapters, pip-supplied ffmpeg, config by argument | (uncommitted) |
 
-**385 tests** pass with every extra installed; **293** on the lite install (the
-full figure re-measured with the queue work, the lite figure in a throwaway
-virtualenv one session earlier).
+**401 tests** pass with every extra installed; **309** on the lite install (both
+measured 27 Sep 2026 with the library split, the lite figure in a throwaway
+virtualenv built from `requirements.txt`).
 **All four engines are now verified live** against their real services, which was the
 biggest open risk when this file was written. `edge` is exercised end-to-end on
 markdown, PDF, EPUB, two real Gutenberg books and a Deep Research report.
@@ -313,8 +326,14 @@ From the review's phase 5, plus one thing the review asked for that shipped with
 
 Recorded so they don't get re-litigated. Change them deliberately, not by drift.
 
-- **macOS only.** Windows parity is not required, which is why `mlx` is in and
-  cross-platform `sherpa-onnx` was deprioritised.
+- **The app is macOS only; the library is not.** Windows parity is not required
+  of the app, which is why `mlx` is in and cross-platform `sherpa-onnx` was
+  deprioritised. The library core (`edge` plus `imageio-ffmpeg`) must keep working
+  on macOS, Linux and Windows from a plain pip install, because weekly-news ships
+  to all three.
+- **Library dependencies are ranges; app requirements are pins.** `pyproject.toml`
+  declares ranges so that echo can share an environment with its callers.
+  `requirements*.txt` stay pinned for the frozen build.
 - **The default install runs no models.** ~100 MB, no ML runtime, no weights, no
   local LLM — every voice is an API call, and `--engine edge` needs no credentials.
   Local synthesis, the cloud SDKs and PDF layout detection are each their own tier.

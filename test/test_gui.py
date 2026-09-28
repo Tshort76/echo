@@ -35,7 +35,7 @@ from PySide6.QtWidgets import (  # noqa: E402
     QTabWidget,
 )
 
-import echo.core as core  # noqa: E402
+import echo_app.core as core  # noqa: E402
 import gui.style as style  # noqa: E402
 from gui.app import GutenbergDialog, MainWindow, QueueDialog, ResearchDialog  # noqa: E402
 from gui.jobs import ConversionJob, ConversionQueue  # noqa: E402
@@ -113,7 +113,7 @@ class TestSourceSelection:
         assert source.display == str(tmp_path / "my_book.epub")
 
     def test_gutenberg_shows_the_book_and_search_details(self, tmp_path):
-        from echo.gutenberg import DownloadedBook, GutenbergBook
+        from echo_app.gutenberg import DownloadedBook, GutenbergBook
 
         book = GutenbergBook(id=2680, title="Meditations", authors=("Marcus Aurelius",))
         downloaded = DownloadedBook(book=book, path=tmp_path / "pg2680_meditations.epub", fmt="epub")
@@ -124,14 +124,14 @@ class TestSourceSelection:
             assert fragment in source.display, fragment
 
     def test_gutenberg_falls_back_to_a_slug_when_no_name_given(self, tmp_path):
-        from echo.gutenberg import DownloadedBook, GutenbergBook
+        from echo_app.gutenberg import DownloadedBook, GutenbergBook
 
         book = GutenbergBook(id=1, title="Pride and Prejudice", authors=("Jane Austen",))
         downloaded = DownloadedBook(book=book, path=tmp_path / "x.epub", fmt="epub")
         assert SourceSelection.from_gutenberg(downloaded, name="").name == "pride_prejudice"
 
     def test_research_shows_the_topic_that_was_sent(self, tmp_path):
-        from echo.research import ResearchResult
+        from echo_app.research import ResearchResult
 
         result = ResearchResult(
             name="chronometer",
@@ -147,7 +147,7 @@ class TestSourceSelection:
         assert "deep-research-preview-04-2026" in source.display
 
     def test_a_very_long_topic_is_trimmed_for_display(self, tmp_path):
-        from echo.research import ResearchResult
+        from echo_app.research import ResearchResult
 
         result = ResearchResult(
             name="x", topic="word " * 200, agent="a", text="b", path=tmp_path / "x.md"
@@ -156,7 +156,7 @@ class TestSourceSelection:
 
     def test_the_output_filename_follows_the_source_name(self, window, tmp_path):
         """A Gutenberg cache file is named pg2680_…; the audio should not be."""
-        from echo.gutenberg import DownloadedBook, GutenbergBook
+        from echo_app.gutenberg import DownloadedBook, GutenbergBook
 
         cached = tmp_path / "pg2680_meditations.epub"
         cached.write_bytes(b"x")
@@ -168,7 +168,7 @@ class TestSourceSelection:
         assert Path(window.convert_tab.output_edit.text()).name == "meditations.m4b"
 
     def test_source_metadata_prefills_but_does_not_override(self, window, tmp_path):
-        from echo.research import ResearchResult
+        from echo_app.research import ResearchResult
 
         tab = window.convert_tab
         tab.settings.title_edit.setText("My Own Title")
@@ -546,7 +546,7 @@ class TestExtractionControls:
 
 class TestNormalizerControl:
     def test_it_offers_every_backend_normalizer(self, window):
-        from echo.normalize import NORMALIZER_NAMES
+        from echo_app.normalize import NORMALIZER_NAMES
 
         combo = window.convert_tab.settings.normalizer
         assert [combo.itemData(i) for i in range(combo.count())] == list(NORMALIZER_NAMES)
@@ -832,7 +832,7 @@ class TestResearchDialog:
 
     def test_it_refuses_to_start_without_credentials(self, app, monkeypatch):
         """The key check happens before a 15-minute job, not during it."""
-        import echo.research as research
+        import echo_app.research as research
 
         monkeypatch.setattr(research.ec, "GEMINI_API_KEY", "")
         monkeypatch.setattr("PySide6.QtWidgets.QMessageBox.warning", lambda *a, **k: None)
@@ -857,7 +857,7 @@ class TestGutenbergDialog:
         assert "title" in dialog.status.text().lower()
 
     def test_results_populate_the_list_and_enable_download(self, app):
-        from echo.gutenberg import GutenbergBook
+        from echo_app.gutenberg import GutenbergBook
 
         dialog = GutenbergDialog()
         dialog._on_results(
@@ -877,7 +877,7 @@ class TestGutenbergDialog:
         assert "nothing matched" in dialog.status.text().lower()
 
     def test_a_paragraph_length_title_is_trimmed(self, app):
-        from echo.gutenberg import GutenbergBook
+        from echo_app.gutenberg import GutenbergBook
 
         dialog = GutenbergDialog()
         dialog._on_results([GutenbergBook(id=1, title="A military dictionary: " + "words " * 100)])

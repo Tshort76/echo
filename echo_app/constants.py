@@ -1,9 +1,15 @@
+"""The app's configuration: ``.env`` plus environment variables, read at import.
+
+App-only. The ``echo`` library reads none of this; the app passes these values
+into library calls as arguments.
+"""
+
 import os
 import re
 
 from dotenv import load_dotenv
 
-from echo.paths import resource_path
+from echo_app.paths import resource_path
 
 load_dotenv()
 
@@ -40,11 +46,6 @@ def _get_env_bool(env_key: str, default_: bool = False) -> bool:
     return s.strip().lower() in {"1", "true", "yes", "on"}
 
 
-# Resolved so it works both from a normal checkout (any cwd) and a frozen build.
-# Note: in a frozen app this points inside the bundle, so update_voice_cache_file()
-# (a dev/CLI maintenance helper, not reachable from the GUI) would not be writable
-# there — acceptable for now.
-VOICE_CACHE_FILE = str(resource_path("resources/voices.csv"))
 OUTPUT_FOLDER = os.environ.get("DEFAULT_OUTPUT_FOLDER", "")
 
 ##### Synthesis
@@ -55,7 +56,6 @@ DEFAULT_VOICE = os.environ.get("DEFAULT_VOICE", "en-GB-SoniaNeural")
 # speed up a 1.0× file, but a 1.25× file is 1.25× forever.
 DEFAULT_SPEED = _get_env_float("DEFAULT_SPEED", 1.0)
 CHUNK_SIZE = _get_env_int("DEFAULT_CHUNK_SIZE", 8000)  # characters
-MAX_THREADS = _get_env_int("DEFAULT_MAX_THREADS", 4)
 #: Attempts per chunk before a synthesis run gives up. Engines fail transiently
 #: (edge-tts websocket 403s, cloud rate limits); one bad chunk should not cost
 #: an hour of work.
@@ -79,7 +79,7 @@ CHAPTER_HEADING_LEVEL = _get_env_int("CHAPTER_HEADING_LEVEL", 2)
 MIN_CHAPTER_CHARS = _get_env_int("MIN_CHAPTER_CHARS", 400)
 
 ##### Gemini Deep Research (a source of text, not an engine)
-#: standard | max | pro — see echo.research.AGENTS.
+#: standard | max | pro — see echo_app.research.AGENTS.
 RESEARCH_AGENT = os.environ.get("RESEARCH_AGENT", "standard")
 #: Override the agent id outright, for when the dated previews are renamed.
 RESEARCH_AGENT_ID = os.environ.get("RESEARCH_AGENT_ID", "")

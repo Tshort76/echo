@@ -7,7 +7,7 @@ gutenberg.org itself.
 Two choices worth knowing about:
 
 * **EPUB is preferred over plain text.** Gutenberg's EPUB editions carry heading
-  markup, so :mod:`echo.extractors.misc` can find real chapter boundaries.
+  markup, so :mod:`echo_app.extractors.misc` can find real chapter boundaries.
   The plain-text edition is one long stream, which yields far coarser chapters.
 * **Downloads are cached by book id**, so re-running a conversion (or trying a
   second voice) does not fetch the same book twice.
@@ -166,7 +166,7 @@ class DownloadedBook:
     fmt: str = "epub"
 
     def as_meta(self) -> dict:
-        """Metadata for :func:`echo.core.file_to_audio`."""
+        """Metadata for :func:`echo_app.core.file_to_audio`."""
         meta = {"title": self.book.title, "author": self.book.author}
         if self.cover_path:
             meta["image_path"] = str(self.cover_path)

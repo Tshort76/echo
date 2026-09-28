@@ -1,0 +1,52 @@
+classes: {
+  entry: { style: { fill: "#E06D14"; stroke: "#A64F0E"; stroke-width: 2; font-color: "#1A1A1A" } }
+  stage: { style: { fill: "#1F6F8B"; stroke: "#0B3C5D"; stroke-width: 2; font-color: "#FFFFFF" } }
+  store: { style: { fill: "#387B5B"; stroke: "#255740"; stroke-width: 2; font-color: "#FFFFFF" } }
+  ext:   { style: { fill: "#D9381E"; stroke: "#9E2815"; stroke-width: 2; font-color: "#FFFFFF" } }
+  focus: { style: { fill: "#5C3D67"; stroke: "#3D2845"; stroke-width: 2; font-color: "#FFFFFF" } }
+  edge:  { style: { stroke: "#0B3C5D"; stroke-width: 2 } }
+  cross: { style: { stroke: "#0B3C5D"; stroke-width: 2; stroke-dash: 4 } }
+}
+direction: down
+
+cli: "CLI · create_audio.py, bulk_generate.py" { class: entry }
+gui: "Desktop app · gui/app.py" { class: entry }
+callers: "Other programs, e.g. weekly-news" { class: ext }
+
+app: "The app · echo_app/" {
+  style: { fill: transparent; stroke: "#7A8B99"; stroke-dash: 4 }
+  sources: "Find a book · gutenberg.py, research.py" { class: stage }
+  pipeline: "Pipeline · core.py" { class: stage }
+  extract: "Extract · extractors/" { class: stage }
+  normalize: "Normalize · normalize.py" { class: stage }
+}
+
+lib: "The library · echo/" {
+  style: { fill: transparent; stroke: "#7A8B99"; stroke-dash: 4 }
+  speech: "Speak · speech.py" { class: focus }
+  tts: "Synthesize · audio/tts.py" { class: stage }
+  engines: "Engines · audio/engines/" { class: stage }
+  assemble: "Join and tag · audio/assemble.py" { class: stage }
+}
+
+out: "Audiobook · .m4b or .mp3" { class: store }
+caches: "Caches · ~/.cache/echo" { class: store }
+voices: "Speech services and models" { class: ext }
+web: "Gutendex, gutenberg.org, Gemini" { class: ext }
+
+cli -> app.pipeline { class: edge }
+gui -> app.pipeline { class: edge }
+cli -> app.sources { class: edge }
+gui -> app.sources { class: edge }
+app.sources -> web: "search, download, research" { class: cross }
+app.sources -> caches { class: cross }
+app.pipeline -> app.extract { class: edge }
+app.extract -> app.normalize: "Document" { class: edge }
+app.normalize -> lib.speech: "Script" { class: edge }
+callers -> lib.speech: "Chapters" { class: edge }
+lib.speech -> lib.tts { class: edge }
+lib.tts -> lib.engines { class: edge }
+lib.engines -> voices: "text" { class: cross }
+lib.engines -> caches: "voices" { class: cross }
+lib.speech -> lib.assemble: "Segments" { class: edge }
+lib.assemble -> out { class: cross }

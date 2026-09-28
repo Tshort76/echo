@@ -1,0 +1,9 @@
+{
+  "sha": "8ed0ecc",
+  "runtime": [
+    "echo-preview/"
+  ],
+  "not_paths": [
+    "prince-canuma/Kokoro-82M"
+  ]
+}

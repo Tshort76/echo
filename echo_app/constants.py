@@ -46,7 +46,8 @@ def _get_env_bool(env_key: str, default_: bool = False) -> bool:
     return s.strip().lower() in {"1", "true", "yes", "on"}
 
 
-OUTPUT_FOLDER = os.environ.get("DEFAULT_OUTPUT_FOLDER", "")
+#: "" means beside the source file. "~" is expanded, as in the README's example.
+OUTPUT_FOLDER = os.path.expanduser(os.environ.get("DEFAULT_OUTPUT_FOLDER", ""))
 
 ##### Synthesis
 DEFAULT_ENGINE = os.environ.get("DEFAULT_ENGINE", "edge")
@@ -90,15 +91,12 @@ RESEARCH_POLL_SECONDS = _get_env_float("RESEARCH_POLL_SECONDS", 15.0)
 #: A Deep Research run takes 2–15 minutes; this is the give-up point.
 RESEARCH_TIMEOUT_SECONDS = _get_env_float("RESEARCH_TIMEOUT_SECONDS", 1800.0)
 
-##### Google engines
+##### Gemini key, for the gemini normalizer and Deep Research
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")
-GEMINI_TTS_MODEL = os.environ.get("GEMINI_TTS_MODEL", "gemini-2.5-flash-preview-tts")
-GOOGLE_CLOUD_VOICE = os.environ.get("GOOGLE_CLOUD_VOICE", "en-GB-Neural2-C")
 
-##### mlx-audio (Apple Silicon)
-MLX_TTS_MODEL = os.environ.get("MLX_TTS_MODEL", "prince-canuma/Kokoro-82M")
-MLX_TTS_VOICE = os.environ.get("MLX_TTS_VOICE", "bf_emma")
-MLX_LANG_CODE = os.environ.get("MLX_LANG_CODE", "")  # "" = infer from voice prefix
+# Engine settings (GEMINI_TTS_MODEL, GOOGLE_CLOUD_VOICE, MLX_TTS_MODEL, MLX_TTS_VOICE,
+# MLX_LANG_CODE, PIPER_VOICE, PIPER_VOICE_DIR) are read by the engines themselves in
+# echo/audio/engines/, when first used. load_dotenv() above is what lets .env set them.
 
 ##### Optional LLM normalization
 #: off | local | gemini
@@ -119,4 +117,3 @@ LOG_DATE_FORMAT = "%H:%M:%S"
 ##### REGEXs
 EMPTY_LINES = re.compile(r"\n\s*\n")
 REDUNDANT_SPACES = re.compile(r" +")
-SENTENCES = re.compile(r"(?<=[.!?])\s+")

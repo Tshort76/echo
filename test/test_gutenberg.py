@@ -5,6 +5,7 @@ live API is exercised by hand (and by ``--list-matches``), not by the suite.
 """
 
 import json
+from pathlib import Path
 
 import pytest
 
@@ -319,3 +320,17 @@ class TestSlug:
         slug = gb._slug("A " * 200)
         assert len(slug) <= 60
         assert not slug.endswith("_")
+
+
+@pytest.mark.parametrize("module,attr,env", [("echo_app.gutenberg", "CACHE_DIR", "GUTENBERG_DIR"),
+                                             ("echo_app.constants", "OUTPUT_FOLDER", "DEFAULT_OUTPUT_FOLDER")])
+def test_a_tilde_in_a_folder_setting_means_home(monkeypatch, module, attr, env):
+    import importlib
+
+    monkeypatch.setenv(env, "~/echo-test-dir")
+    mod = importlib.import_module(module)
+    try:
+        assert str(importlib.reload(mod).__dict__[attr]) == str(Path.home() / "echo-test-dir")
+    finally:
+        monkeypatch.delenv(env)
+        importlib.reload(mod)

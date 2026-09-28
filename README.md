@@ -101,7 +101,7 @@ M4B_BITRATE="64k"               # AAC/MP3 bitrate when re-encoding
 WRITE_TRANSCRIPT="false"        # also write .srt when the engine reports timings
 
 # Synthesis
-DEFAULT_ENGINE="edge"           # edge | gemini | google-cloud | mlx
+DEFAULT_ENGINE="edge"           # edge | gemini | google-cloud | mlx | piper
 DEFAULT_VOICE="en-GB-SoniaNeural"
 DEFAULT_SPEED="1.0"             # baked into the audio; 1.0 keeps the file re-usable
 DEFAULT_CHUNK_SIZE="8000"       # characters per request, capped by the engine's own limit
@@ -132,6 +132,10 @@ GOOGLE_CLOUD_VOICE="en-GB-Neural2-C"
 MLX_TTS_MODEL="prince-canuma/Kokoro-82M"
 MLX_TTS_VOICE="bf_emma"
 MLX_LANG_CODE=""                # blank infers the language from the voice name
+
+# Local synthesis (any OS, CPU)
+PIPER_VOICE="en_GB-alan-medium"  # a catalogue id, or a path to a local .onnx model
+PIPER_VOICE_DIR="~/.cache/echo/piper"     # where downloaded voices are kept
 
 # Optional LLM text normalization
 NORMALIZER="off"                # off | local | gemini

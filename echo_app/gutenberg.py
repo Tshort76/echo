@@ -37,7 +37,7 @@ _RETRIES = 3
 
 #: Where downloaded books live. Outside the repo so it also works from a frozen
 #: app, where the bundle directory is read-only.
-CACHE_DIR = Path(os.environ.get("GUTENBERG_DIR") or (Path.home() / ".cache" / "echo" / "gutenberg"))
+CACHE_DIR = Path(os.environ.get("GUTENBERG_DIR") or (Path.home() / ".cache" / "echo" / "gutenberg")).expanduser()
 
 #: Preference order per logical format. Gutendex keys are MIME types, sometimes
 #: with a charset suffix, so these are matched as prefixes.

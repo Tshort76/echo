@@ -569,6 +569,16 @@ questions being re-opened. Update it when work lands. Its "Where we stand" heade
 carries anything urgent and transient — check that first; as of 27 Sep 2026 it lists
 the follow-ups from the library/app split.
 
+## Git workflow: commit straight to `main`
+
+The owner is the only developer on echo, so there is no branch-and-PR step here.
+Commit directly on `main` and push once the work is done and the tests pass. Don't
+create feature branches or open pull requests, and don't ask before committing.
+This overrides the general "branch first, open a PR" guidance. Stage only the
+paths you changed (`git add <path>`, never `-A` at the repo root), and still run
+`git status` first (see Conventions). Releases that other projects pin to, like
+weekly-news on `v0.3.0`, get an annotated `vX.Y.Z` tag pushed along with the commit.
+
 ## Conventions
 
 - Line length 118 (see `pyproject.toml`).

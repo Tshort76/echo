@@ -25,7 +25,7 @@ import echo_app.core as core
 _PROGRESS_RE = re.compile(r"Progress Report:\s*(\d+)\s*%")
 
 # Loggers whose output we surface in the UI while a job runs.
-_CAPTURED_LOGGERS = ("echo", "__main__")
+_CAPTURED_LOGGERS = ("echo", "echo_app", "__main__")
 
 
 class _SignalLogHandler(logging.Handler):

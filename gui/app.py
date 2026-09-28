@@ -67,7 +67,7 @@ from gui.workers import (
 SUPPORTED_INPUTS = "Supported files (*.txt *.md *.pdf *.epub);;All files (*)"
 FORMAT_BLURBS = {
     "m4b": "M4B — audiobook with chapter marks",
-    "mp3": "MP3 — plays everywhere, no chapters",
+    "mp3": "MP3 — plays everywhere, chapters in podcast apps",
 }
 
 #: The better-represented languages in Project Gutenberg's catalogue. Not

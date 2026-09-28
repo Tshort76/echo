@@ -310,6 +310,17 @@ class TestGather:
             tab.gather()
 
 
+class TestWorkerLogCapture:
+    @pytest.mark.parametrize("logger", ["echo.audio.tts", "echo_app.core"])
+    def test_library_and_app_log_lines_reach_the_log_panel(self, app, logger):
+        from gui.workers import _BaseWorker
+
+        worker, seen = _BaseWorker(), []
+        worker.message.connect(seen.append)
+        worker._run_captured(lambda: logging.getLogger(logger).info("hello from %s", logger))
+        assert f"hello from {logger}" in seen
+
+
 class TestLabelsFit:
     """Guards a class of bug hit twice while building this dialog: a label either
     clipped by a few pixels, or squeezed to zero width by a field whose

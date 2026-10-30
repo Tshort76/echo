@@ -28,8 +28,8 @@ and gemini each converted a sample to M4B. The `misaki==0.9.4` pin had never ins
 on 3.13, because 0.7.5 and later require Python <3.13. It now pins 0.7.4, the version
 Kokoro was actually verified on.
 
-- [ ] **weekly-news still pins `v0.3.2`**, which carries the broken edge-tts. It needs
-      to move to `v0.3.3`.
+- [x] ~~**weekly-news moves to `v0.3.3`.**~~ Done in its commit `8ab8d00`. Its suite
+      passes (390), and its own `audio.speak()` produced an edge mp3.
 
 Open follow-ups from the split:
 

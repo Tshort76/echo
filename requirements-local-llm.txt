@@ -40,10 +40,10 @@
 # The spaCy English model (en_core_web_sm) downloads itself on first use.
 
 -r requirements.txt
-mlx-audio==0.4.6
+mlx-audio==0.6.3
 
 # Kokoro's grapheme-to-phoneme chain.
-misaki==0.9.4
+misaki==0.7.4          # last release that installs on Python 3.13; 0.7.5+ require <3.13
 num2words>=0.5.13
 spacy>=3.8            # 3.8+ is the first line with wheels for recent Pythons
 click>=8.1            # spacy.cli imports it but does not declare it

@@ -74,7 +74,7 @@ inference. That is a poor trade if you mostly convert EPUBs with cloud voices, s
 is opt-in. echo says which backend it used, and how to get the other one.
 
 It is not a strict downgrade either. On a **scanned** PDF the layout backend currently
-returns its own picture-text sentinel markers with the words run together, while the
+still leaves a few of its own picture-text sentinel markers in the narration, while the
 lite path's Tesseract OCR produces clean prose — so if you have the layout extra
 installed and a scanned book comes out mangled, pass `--force-ocr`.
 
@@ -466,8 +466,8 @@ said and where the chapters fall. echo decides how it is spoken and how the file
 is built.
 
 ```bash
-pip install "echo-tts @ git+https://github.com/Tshort76/echo@v0.3.2"            # edge voices
-pip install "echo-tts[google] @ git+https://github.com/Tshort76/echo@v0.3.2"    # + Gemini / Cloud TTS
+pip install "echo-tts @ git+https://github.com/Tshort76/echo@v0.3.3"            # edge voices
+pip install "echo-tts[google] @ git+https://github.com/Tshort76/echo@v0.3.3"    # + Gemini / Cloud TTS
 ```
 
 ```python

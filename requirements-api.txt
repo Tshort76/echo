@@ -15,5 +15,5 @@
 # See requirements-google.txt for the authentication details — the two Google
 # engines authenticate differently, which is easy to trip over.
 -r requirements.txt
-google-genai==2.14.0
-google-cloud-texttospeech==2.37.0
+google-genai==2.34.0
+google-cloud-texttospeech==2.38.0

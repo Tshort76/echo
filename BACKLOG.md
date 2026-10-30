@@ -18,6 +18,19 @@ weekly-news's spec (`echo-as-library.md`), which is the first external consumer.
 `echo_app`, the CLI and the GUI sit on top of it. See CLAUDE.md, "Library and app:
 the split".
 
+**30 Oct 2026, dependency refresh (v0.3.3).** Microsoft's endpoint began refusing
+edge-tts 7.2.8 with a 403 on the websocket handshake, so the default engine (and
+weekly-news's first choice) had been dead. 7.3.1 fixes it, and `pyproject.toml` now
+requires `>=7.3.1`. Everything else moved to current releases: pymupdf and pymupdf4llm
+2.0, google-genai 2.34, mlx-audio 0.6.3, imageio-ffmpeg 0.7, PySide6 6.12, and
+PyInstaller 6.22. The suite passes on 3.14 and 3.13, and edge, mlx (Kokoro), piper
+and gemini each converted a sample to M4B. The `misaki==0.9.4` pin had never installed
+on 3.13, because 0.7.5 and later require Python <3.13. It now pins 0.7.4, the version
+Kokoro was actually verified on.
+
+- [ ] **weekly-news still pins `v0.3.2`**, which carries the broken edge-tts. It needs
+      to move to `v0.3.3`.
+
 Open follow-ups from the split:
 
 - [x] ~~**Tag a release for weekly-news.**~~ weekly-news pins `v0.3.2` (its
@@ -277,12 +290,15 @@ From the review's phase 5, plus one thing the review asked for that shipped with
 - [ ] **`pymupdf4llm` mangles scanned PDFs, and its markers reach the narration.**
       (S–M) The one item here that produces *audibly wrong output*, found while
       exercising OCR. On `ocr_3_pages.pdf` the layout backend does its own
-      picture-text recovery rather than deferring to OCR, and returns sentinel
-      markers with the words glued together:
+      picture-text recovery rather than deferring to OCR, and wraps what it recovers
+      in sentinel markers:
 
-          <!, Start of picture text, > IIGroups and StatisticalAt about the beginning…
+          <!, Start of picture text, > II<!, End of picture text, >
 
-      **16 of those markers survive into the Script**, so they would be read aloud.
+      Under 1.28 the text was also doubled (14,714 chars, against OCR's ~7,300) with
+      words glued together, and 32 markers reached the Script. **2.0 (30 Oct 2026)
+      fixed the text, but 2 markers still survive into the Script**, so they would
+      be read aloud.
       The lite path's OCR handles the same file cleanly ("II Groups and Statistical
       Mechanics At about the beginning of the present century, two scientists…").
       Two things to fix: strip the `<!, … picture text, >` sentinels in

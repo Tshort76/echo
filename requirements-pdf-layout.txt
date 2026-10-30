@@ -17,4 +17,4 @@
 #
 # Worth it if you convert PDFs often and care about chapter marks. Skip it otherwise.
 -r requirements.txt
-pymupdf4llm==1.28.0
+pymupdf4llm==2.0

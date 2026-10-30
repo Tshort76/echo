@@ -36,7 +36,7 @@ from echo.speech import (
 )
 from echo.text import split_text
 
-__version__ = "0.3.2"
+__version__ = "0.3.3"
 
 __all__ = [
     "AssemblyError",

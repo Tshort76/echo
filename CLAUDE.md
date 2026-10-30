@@ -64,10 +64,11 @@ than skipped. Adding a hard dependency back into the core tier needs a real reas
 
 **It is not strictly better than the fallback, though.** On a *scanned* PDF
 (`resources/demo_data/ocr_3_pages.pdf`) `pymupdf-layout` does its own picture-text
-recovery instead of deferring to OCR, and returns
-`<!, Start of picture text, > IIGroups and StatisticalAt about…` — sentinel markers
-around text with the spaces lost. Sixteen of those markers currently survive into the
-Script and would be spoken. PyMuPDF's Tesseract OCR handles the same file cleanly, so
+recovery instead of deferring to OCR, and wraps
+the text it recovers in sentinel markers (`<!, Start of picture text, > II<!, End of
+picture text, >`). Under `pymupdf4llm` 1.28 the text also came back doubled and with
+the spaces lost, and 32 markers reached the Script. 2.0 fixed the text, but 2 markers
+still survive and would be spoken. PyMuPDF's Tesseract OCR handles the same file cleanly, so
 the lite tier is *better* here. `--force-ocr` is the workaround; stripping the
 sentinels in `extractors/markdown.py` is the fix (BACKLOG §5). Judge extraction
 quality per-document, not by which backend cost more to install.

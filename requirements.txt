@@ -24,11 +24,11 @@
 # onnxruntime, about 180 MB of ONNX inference — a poor trade if you only want
 # cloud voices.
 
-python-dotenv==1.2.2        # .env configuration
-edge-tts==7.2.8             # default TTS engine (Microsoft Edge voices)
+python-dotenv==1.2.4        # .env configuration
+edge-tts==7.3.1             # default TTS engine (Microsoft Edge voices)
 mutagen==1.48.1             # ID3/MP4 tags and chapters, cover art, duration probing
-imageio-ffmpeg==0.6.0       # a static ffmpeg per platform, so no separate install
-pymupdf==1.28.0             # PDF text extraction and built-in Tesseract OCR
+imageio-ffmpeg==0.7.0       # a static ffmpeg per platform, so no separate install
+pymupdf==2.0                # PDF text extraction and built-in Tesseract OCR
 EbookLib==0.20              # EPUB parsing
 beautifulsoup4==4.15.0      # EPUB/HTML text extraction
 

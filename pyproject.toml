@@ -1,6 +1,6 @@
 [project]
 name = "echo-tts"
-version = "0.3.2"
+version = "0.3.3"
 description = "Text to chaptered speech: a TTS library with pluggable engines, plus an audiobook app"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -11,7 +11,7 @@ license = { file = "LICENSE" }
 # tested set lives in requirements*.txt. No PDF, EPUB or HTML parsing here; that
 # is the app's, under the `app` extra.
 dependencies = [
-    "edge-tts>=7.2,<8",
+    "edge-tts>=7.3.1,<8",
     "mutagen>=1.47,<2",
     # A static ffmpeg for macOS, Linux and Windows, so a pip install is a working
     # install with no `brew install` step.
@@ -20,11 +20,11 @@ dependencies = [
 
 [project.optional-dependencies]
 # Gemini TTS + Google Cloud TTS engines (and, for the app, research and the gemini normalizer).
-google = ["google-genai>=2.14,<3", "google-cloud-texttospeech>=2.37,<3"]
+google = ["google-genai>=2.34,<3", "google-cloud-texttospeech>=2.38,<3"]
 api = ["echo-tts[google]"]
 # On-device synthesis on Apple Silicon. Kokoro works on Python 3.13 only today;
 # see requirements-local-llm.txt for the misaki/spaCy/espeak setup it needs.
-mlx = ["mlx-audio>=0.4.6,<0.5"]
+mlx = ["mlx-audio>=0.6.3,<0.7"]
 local = ["echo-tts[mlx]"]
 # Offline synthesis on any OS and Python, CPU only: onnxruntime plus a bundled espeak-ng
 # (~180 MB). Voices (~60 MB each) download on first use.
@@ -32,12 +32,12 @@ piper = ["piper-tts>=1.3,<2"]
 # The audiobook app: extraction from PDF/EPUB/HTML, .env configuration, the CLI.
 app = [
     "python-dotenv>=1.0,<2",
-    "pymupdf>=1.26,<2",
+    "pymupdf>=1.26,<3",
     "EbookLib>=0.18,<1",
     "beautifulsoup4>=4.12,<5",
 ]
 # Structured PDF extraction for the app: real heading detection, at the cost of onnxruntime.
-pdf-layout = ["echo-tts[app]", "pymupdf4llm>=1.28,<2"]
+pdf-layout = ["echo-tts[app]", "pymupdf4llm>=1.28,<3"]
 # Structured extraction for documents the fast path mangles.
 docling = ["echo-tts[app]", "docling>=2.115.0"]
 gui = ["echo-tts[app]", "PySide6>=6.6"]

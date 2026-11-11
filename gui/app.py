@@ -16,7 +16,7 @@ import sys
 from importlib.util import find_spec
 from pathlib import Path
 
-from PySide6.QtCore import QSize, Qt
+from PySide6.QtCore import QCoreApplication, QEvent, QSize, Qt
 from PySide6.QtGui import QAction, QFont, QFontMetrics
 from PySide6.QtWidgets import (
     QApplication,
@@ -1510,7 +1510,13 @@ def main() -> int:
 
     window = MainWindow()
     window.show()
-    return app.exec()
+    try:
+        return app.exec()
+    finally:
+        # Destroy the widget tree while QApplication is still alive, not during
+        # PySide's interpreter shutdown when shared tool buttons may outlive it.
+        window.deleteLater()
+        QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)
 
 
 if __name__ == "__main__":

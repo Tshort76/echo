@@ -7,7 +7,7 @@ itself reads no configuration file and changes nothing in ``os.environ``.
 
 from __future__ import annotations
 
-ENGINE = "edge"
+ENGINE = "kokoro"
 #: Speed is baked into the audio, so 1.0 leaves a file that players can still
 #: speed up; a 1.25x file is 1.25x forever.
 SPEED = 1.0

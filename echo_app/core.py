@@ -202,7 +202,8 @@ def file_to_audio(
         mp3_meta: ``title`` / ``author`` / ``image_path`` for tagging.
         voice: engine-specific voice id; the engine's default when omitted.
         speed: playback multiplier, applied by the engine or by ffmpeg.
-        engine: ``edge`` (default), ``gemini``, ``google-cloud`` or ``mlx``.
+        engine: ``kokoro`` (default), ``qwen``, ``edge``, ``gemini``,
+            ``google-cloud``, ``mlx`` or ``piper``.
         fmt: ``m4b`` (default, chaptered) or ``mp3``.
         normalizer: ``off`` (default), ``local`` or ``gemini``.
         write_text_file: also write the narrated text beside the audio.

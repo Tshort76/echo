@@ -6,7 +6,8 @@
 # OpenAI-compatible server over HTTP and needs nothing from this file.
 #
 #   pip install -r requirements-local-llm.txt
-#   python create_audio.py book.epub -e mlx -v bf_emma
+#   python create_audio.py book.epub                      # Kokoro / Emma
+#   python create_audio.py book.epub -e qwen -v Ryan      # Qwen / Ryan
 #
 # Requires Python <= 3.13. Verified working on 3.13.7; on 3.14 spaCy cannot build
 # (see below), so Kokoro is unavailable there — use
@@ -40,7 +41,7 @@
 # The spaCy English model (en_core_web_sm) downloads itself on first use.
 
 -r requirements.txt
-mlx-audio==0.6.3
+mlx-audio==0.6.5
 
 # Kokoro's grapheme-to-phoneme chain.
 misaki==0.7.4          # last release that installs on Python 3.13; 0.7.5+ require <3.13

@@ -39,7 +39,7 @@ flowchart LR
 
 | Argument | Default | What changes |
 |---|---|---|
-| `engine` | `edge` | the registry name, or your own `SpeechEngine` object |
+| `engine` | `kokoro` | the registry name, or your own `SpeechEngine` object |
 | `voice` | the engine's default | engine-specific voice id; for Piper also a path to a `.onnx` model |
 | `speed` | `1.0` | rate multiplier; the engine applies it, or ffmpeg's `atempo` if the engine cannot |
 | `fmt` | the output path's suffix | `mp3` or `m4b` |
@@ -74,7 +74,7 @@ flowchart LR
 
 | Variable | Default | What changes |
 |---|---|---|
-| `DEFAULT_ENGINE` | `edge` | the engine when `-e` is not given |
+| `DEFAULT_ENGINE` | `kokoro` | the engine when `-e` is not given |
 | `DEFAULT_VOICE` | `en-GB-SoniaNeural` | the voice when `-v` is not given, **for edge only**; other engines keep their own default |
 | `DEFAULT_SPEED` | `1.0` | the speed when `-s` is not given |
 | `DEFAULT_MAX_RETRIES` | `3` | attempts per chunk |
@@ -83,7 +83,7 @@ flowchart LR
 </details>
 
 <details>
-<summary>Engines, read by the engine itself (8)</summary>
+<summary>Engines, read by the engine itself (10)</summary>
 
 | Variable | Default | Engine |
 |---|---|---|
@@ -92,7 +92,9 @@ flowchart LR
 | `GOOGLE_CLOUD_VOICE` | `en-GB-Neural2-C` | `google-cloud` default voice |
 | `GOOGLE_APPLICATION_CREDENTIALS` | the gcloud default login | `google-cloud`; read by Google's own client library |
 | `MLX_TTS_MODEL` | `prince-canuma/Kokoro-82M` | `mlx` |
-| `MLX_TTS_VOICE`, `MLX_LANG_CODE` | `bf_emma`, inferred from the voice | `mlx` |
+| `MLX_TTS_VOICE`, `MLX_LANG_CODE` | `bf_emma`, inferred from the voice | `kokoro`, `mlx` |
+| `QWEN_TTS_MODEL` | `mlx-community/Qwen3-TTS-12Hz-0.6B-CustomVoice-8bit` | `qwen`; CustomVoice checkpoint or local path |
+| `QWEN_TTS_VOICE`, `QWEN_LANG_CODE` | `Ryan`, `English` | `qwen` |
 | `PIPER_VOICE` | `en_GB-alan-medium` | `piper` default voice, or a `.onnx` path |
 | `PIPER_VOICE_DIR` | `~/.cache/echo/piper` | `piper`, where downloaded voices are kept |
 
@@ -125,7 +127,7 @@ flowchart LR
 
 </details>
 
-**Which voice is used, first match wins:** the `-v` flag or GUI choice, then `DEFAULT_VOICE` if the engine is edge, then the engine's own variable (`PIPER_VOICE`, `GOOGLE_CLOUD_VOICE`, `MLX_TTS_VOICE`), then the engine's built-in default. `gemini` has no variable and defaults to `Kore`.
+**Which voice is used, first match wins:** the `-v` flag or GUI choice, then `DEFAULT_VOICE` if the engine is edge, then the engine's own variable (`PIPER_VOICE`, `GOOGLE_CLOUD_VOICE`, `MLX_TTS_VOICE`, `QWEN_TTS_VOICE`), then the engine's built-in default. `gemini` has no variable and defaults to `Kore`.
 
 **Which Gemini key is used:** `GEMINI_API_KEY`, then `GOOGLE_API_KEY`. Google Cloud TTS does not accept an API key at all; it needs Application Default Credentials.
 
@@ -170,8 +172,8 @@ flowchart LR
 
 | Constant | Value | Where |
 |---|---|---|
-| Chunks synthesized at once | edge 4, gemini 2, google-cloud 4, mlx 1, piper 1 | each engine's `max_concurrency` in `echo/audio/engines/` |
-| Longest request per engine | edge 8,000, gemini 6,000, google-cloud, mlx and piper 4,000 characters | each engine's `max_chars` |
+| Chunks synthesized at once | edge 4, gemini 2, google-cloud 4, kokoro 1, qwen 1, mlx 1, piper 1 | each engine's `max_concurrency` in `echo/audio/engines/` |
+| Longest request per engine | edge 8,000, gemini 6,000, google-cloud, kokoro, mlx and piper 4,000; qwen 1,000 characters | each engine's `max_chars` |
 | Gemini audio format | 16-bit mono PCM at 24 kHz | `echo/audio/engines/google.py:33` |
 | Speed range | 0.5 to 3.0 in the CLI and GUI; edge accepts 0.25 to 5 | `create_audio.py:24`, `gui/app.py:103`, `echo/audio/engines/edge.py` |
 | Docling escalation | under 200 characters per PDF page | `echo_app/extractors/__init__.py:52` |

@@ -41,7 +41,8 @@ def chunks_dir_for(output_path: Path) -> Path:
 
 
 def _segment_path(chunks_dir: Path, index: int, engine: SpeechEngine, voice: str, speed: float, text: str) -> Path:
-    key = "\x1f".join((engine.name, voice, f"{speed:.4f}", text))
+    identity = getattr(engine, "cache_identity", engine.name)
+    key = "\x1f".join((identity, voice, f"{speed:.4f}", text))
     digest = hashlib.sha1(key.encode("utf-8")).hexdigest()[:10]
     return chunks_dir / f"chunk_{digest}_{index:05d}{engine.audio_suffix}"
 

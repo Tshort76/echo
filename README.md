@@ -1,8 +1,8 @@
 # echo
 
-Turn PDFs, EPUBs, Markdown and text files into **chaptered audiobooks** using
-your choice of text-to-speech engine — Microsoft Edge's free voices, Google's
-cloud voices, or a model running locally on your own Mac.
+Turn PDFs, EPUBs, Markdown and text files into **chaptered audiobooks**.
+Kokoro is the default local narrator; choose Qwen for another local voice, or
+Edge and Google for online synthesis.
 
 ```bash
 python create_audio.py my_book.epub
@@ -21,7 +21,7 @@ python create_audio.py --research "the history of the marine chronometer" --name
 - **Structure-aware.** Headings become chapters; tables, figures, code blocks,
   footnote markers, running headers and Project Gutenberg boilerplate are left
   out of the narration.
-- **Five engines behind one interface.** Switch with `--engine`; add one without
+- **Local and cloud engines behind one interface.** Switch with `--engine`; add one without
   touching the pipeline.
 - **Small by default.** The base install is ~100 MB with no ML runtime and no model
   weights; local synthesis is a tier you opt into.
@@ -36,9 +36,9 @@ python create_audio.py --research "the history of the marine chronometer" --name
 # Installation
 
 ```bash
-python -m venv .venv
+python3.13 -m venv .venv
 source .venv/bin/activate            # Windows: .\.venv\Scripts\Activate.ps1
-pip install -r requirements.txt
+pip install -r requirements-local-llm.txt  # Kokoro and Qwen on Apple Silicon
 ```
 
 ffmpeg joins the audio and writes chapters. It comes with the install, as the
@@ -47,8 +47,9 @@ nothing else to install. A system ffmpeg on `PATH` is used only if that wheel is
 missing.
 
 That's the **lite** install: ~100 MB, with **no machine-learning runtimes, no model
-weights and no local LLM**. Every voice is an API call, and `--engine edge` needs no
-credentials at all, so this works out of the box.
+weights and no local LLM**. Its available voices use online services, and `--engine edge` needs no
+credentials. To use only this tier, pass `--engine edge` explicitly. The default
+Kokoro engine requires the local tier installed above.
 
 ## Choosing a tier
 
@@ -60,9 +61,9 @@ Measured `site-packages` sizes on Python 3.13:
 | `requirements-api.txt` | **194 MB** | + Gemini and Google Cloud voices, Deep Research, LLM normalization. Still nothing local. |
 | `requirements-pdf-layout.txt` | +180 MB | + real PDF heading detection (see the caveat below) |
 | `requirements-piper.txt` | +180 MB | + `--engine piper`: offline synthesis on the CPU, any OS, Python 3.14 included. Each voice is a 60 MB download the first time it is used. |
-| `requirements-local-llm.txt` | ~2 GB | + `--engine mlx`: on-device synthesis, offline and unmetered (Apple Silicon) |
+| `requirements-local-llm.txt` | ~2 GB plus weights | + `kokoro` (default) and `qwen`: offline synthesis on Apple Silicon |
 
-Most people want the first or second line. They are additive, so
+The local tier is the default narration setup. The tiers are additive, so
 `pip install -r requirements-api.txt` gives you the core plus the cloud engines.
 
 **The PDF caveat.** The lite install reads a PDF's own text layer: the book converts
@@ -101,7 +102,7 @@ M4B_BITRATE="64k"               # AAC/MP3 bitrate when re-encoding
 WRITE_TRANSCRIPT="false"        # also write .srt when the engine reports timings
 
 # Synthesis
-DEFAULT_ENGINE="edge"           # edge | gemini | google-cloud | mlx | piper
+DEFAULT_ENGINE="kokoro"         # kokoro | qwen | edge | gemini | google-cloud | mlx | piper
 DEFAULT_VOICE="en-GB-SoniaNeural"
 DEFAULT_SPEED="1.0"             # baked into the audio; 1.0 keeps the file re-usable
 DEFAULT_CHUNK_SIZE="8000"       # characters per request, capped by the engine's own limit
@@ -152,7 +153,7 @@ NORMALIZER_LENGTH_TOLERANCE="0.25"        # reject a rewrite that drifts this mu
 python create_audio.py --list-engines     # shows which are ready, and why not
 ```
 
-### `edge` — Microsoft Edge voices (default)
+### `edge` — Microsoft Edge voices
 
 Free, no account, 322 voices, nothing to install. It reaches an unofficial
 endpoint, so it occasionally returns a websocket 403 — echo retries, and a
@@ -194,28 +195,39 @@ list of English voices, and any id from
 the path to a local `.onnx` model, with its `.onnx.json` config beside it. That
 model loads as-is, with no download.
 
-### `mlx` — local, on-device (Apple Silicon)
+### `kokoro` and `qwen` — local narration on Apple Silicon
 
-Offline, private, unmetered, Metal-accelerated. `MLX_TTS_MODEL` picks the model from
-mlx-audio's catalogue; the default is Kokoro-82M.
-
-**Measured on an M4 Pro:** a real-time factor of **0.053** — about 19× faster than
-playback, so a ten-hour audiobook synthesizes in roughly half an hour, with no
-network and no metering.
+Kokoro is the default, using Emma (`bf_emma`). Qwen uses the tested 0.6B
+CustomVoice 8-bit checkpoint and defaults to Ryan. Both run offline after the
+first model download, with no narration charges. Choose either in the GUI's
+Engine menu or with `--engine`:
 
 ```bash
-pip install -r requirements-local-llm.txt
-python create_audio.py book.epub -e mlx -v bf_emma
+pip install -r requirements-local-llm.txt  # Python 3.13
+python create_audio.py book.epub                     # Kokoro / Emma
+python create_audio.py book.epub -e qwen              # Qwen / Ryan
+python create_audio.py book.epub -e qwen -v Aiden
+python create_audio.py --list-voices -e qwen
 ```
 
-> **Kokoro needs Python ≤ 3.13** (verified on 3.13.7). Its `misaki` phonemizer
-> needs spaCy, which can't build on 3.14 here. On 3.14, pick a model that needs no
-> phonemizer instead: `MLX_TTS_MODEL=mlx-community/chatterbox-turbo-4bit`.
-> `--list-engines` tells you which case you're in.
->
-> **Don't `pip install 'misaki[en]'`** — that extra sends pip backtracking into an
-> unbuildable old spaCy. `requirements-local-llm.txt` lists the working set and explains
-> why, including the espeak fallback that Kokoro needs but doesn't ask for.
+Kokoro's model files are about 340 MB; Qwen's are about 2 GB. Qwen generates
+more slowly and its speed control is applied by ffmpeg during assembly. Neither
+engine currently supplies word timings. Switching models does not reuse audio
+from another model in an unfinished conversion.
+
+Kokoro needs the phonemizer setup in `requirements-local-llm.txt`, including its
+espeak fallback; use Python 3.13. Qwen alone needs `pip install 'echo-tts[mlx]'`
+and does not use Kokoro's phonemizer. If the local default is unavailable, the
+app reports that setup is needed; it does not silently choose online narration.
+
+`MLX_TTS_VOICE` and `MLX_LANG_CODE` configure Kokoro. Qwen has separate
+`QWEN_TTS_VOICE` (Ryan), `QWEN_LANG_CODE` (English), and `QWEN_TTS_MODEL`
+settings. A Qwen override must be a CustomVoice checkpoint or a local directory
+containing one. Base and VoiceDesign checkpoints need different inputs and are
+not supported by this adapter.
+
+The legacy `mlx` engine remains available for `MLX_TTS_MODEL` configurations.
+The explicit `kokoro` and `qwen` choices stay independent of that override.
 
 # Getting a book from Project Gutenberg
 
@@ -346,7 +358,7 @@ python create_audio.py --list-voices -e gemini
 | Flag | Meaning |
 | --- | --- |
 | `-o, --output` | where to write the audio (default: beside the source) |
-| `-e, --engine` | `edge`, `gemini`, `google-cloud`, `mlx` |
+| `-e, --engine` | `kokoro` (default), `qwen`, `edge`, `gemini`, `google-cloud`, `mlx`, `piper` |
 | `-v, --voice` | voice id for that engine (default: the engine's own) |
 | `-s, --speed` | playback multiplier, 0.5–3.0 |
 | `-f, --format` | `m4b` (chapters) or `mp3` |
@@ -450,7 +462,7 @@ build manually: `pyinstaller echo_gui.spec --noconfirm --clean`.
   static build (its source URLs can drift), install ffmpeg yourself — the app
   falls back to one on `PATH`. Bundled ffmpeg is GPL/LGPL; keep its `LICENSE.txt`.
 - **Internet** is needed at runtime for the `edge`, `gemini` and `google-cloud`
-  engines. `mlx` works offline once its model has been downloaded.
+  engines. `kokoro`, `qwen`, and `mlx` work offline once their assets are cached.
 - **Scanned PDFs** still need Tesseract installed separately.
 - Unsigned apps trip **Gatekeeper** (macOS: right-click → Open, or
   `xattr -dr com.apple.quarantine Echo.app`) and **SmartScreen** (Windows:
@@ -523,7 +535,8 @@ below 1.0. Anything under `echo.audio` is internal.
 | `edge` | 3.11+, including 3.14 | none |
 | `gemini`, `google-cloud` | 3.11+ | `[google]` |
 | `piper` | 3.11+, including 3.14; any OS, CPU only | `[piper]` |
-| `mlx` (Kokoro) | **3.13 only** on Apple Silicon, since its phonemizer needs spaCy, which does not build on 3.14 yet. `check_available()` says so. | `[mlx]`, plus the setup in `requirements-local-llm.txt` |
+| `kokoro`, `mlx` (Kokoro) | **3.13 only** on Apple Silicon, since its phonemizer needs spaCy, which does not build on 3.14 yet. `check_available()` says so. | `[mlx]`, plus the setup in `requirements-local-llm.txt` |
+| `qwen` | Apple Silicon; verified on Python 3.13 | `[mlx]` |
 
 # Python API (the app)
 

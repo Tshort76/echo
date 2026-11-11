@@ -14,6 +14,7 @@ than letting the ImportError surface raw.
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import platform
 from pathlib import Path
@@ -23,6 +24,21 @@ from echo.audio.engines.base import BaseEngine, EngineUnavailable, SynthOutput, 
 from echo.audio.wav import write_float_wav
 
 log = logging.getLogger(__name__)
+
+KOKORO_MODEL = "prince-canuma/Kokoro-82M"
+QWEN_MODEL = "mlx-community/Qwen3-TTS-12Hz-0.6B-CustomVoice-8bit"
+_QWEN_MAX_TOKENS = 4096
+_QWEN_VOICES = (
+    ("Ryan", "en", "US", "Male"),
+    ("Aiden", "en", "US", "Male"),
+    ("Vivian", "zh", "CN", "Female"),
+    ("Serena", "zh", "CN", "Female"),
+    ("Uncle_Fu", "zh", "CN", "Male"),
+    ("Dylan", "zh", "CN", "Male"),
+    ("Eric", "zh", "CN", "Male"),
+    ("Ono_Anna", "ja", "JP", "Female"),
+    ("Sohee", "ko", "KR", "Female"),
+)
 
 #: Kokoro voice-name prefixes: first letter is the language, second the gender.
 _LANG_BY_PREFIX = {
@@ -59,8 +75,7 @@ _KOKORO_VOICES: tuple[str, ...] = (
 _MISAKI_HELP = (
     "This mlx-audio model needs the 'misaki' phonemizer, which requires spaCy — and "
     "spaCy cannot build on Python {py} here. Either run echo on Python 3.13 (see "
-    "requirements-local-llm.txt), or set MLX_TTS_MODEL to a model that needs no "
-    "phonemizer, e.g. MLX_TTS_MODEL=mlx-community/chatterbox-turbo-4bit"
+    "requirements-local-llm.txt), or choose --engine qwen, which needs no Kokoro phonemizer."
 )
 
 _ESPEAK_HELP = (
@@ -116,22 +131,29 @@ class MlxEngine(BaseEngine):
     supports_speed = True
 
     def __init__(self, model_id: str = None, voice: str = None, lang_code: str = None):
-        self.model_id = model_id or os.environ.get("MLX_TTS_MODEL", "prince-canuma/Kokoro-82M")
+        self.model_id = model_id or os.environ.get("MLX_TTS_MODEL", KOKORO_MODEL)
         self._voice = voice or os.environ.get("MLX_TTS_VOICE", "bf_emma")
         self.lang_code = lang_code if lang_code is not None else os.environ.get("MLX_LANG_CODE", "")
         self._model = None
+
+    @property
+    def cache_identity(self) -> str:
+        return json.dumps([self.name, self.model_id, self.lang_code], ensure_ascii=False)
 
     # ── availability ────────────────────────────────────────────────────────
     def check_available(self) -> None:
         if platform.system() != "Darwin" or platform.machine() != "arm64":
             raise EngineUnavailable(
-                "The mlx engine needs an Apple Silicon Mac; this machine is "
+                f"{self.label} needs an Apple Silicon Mac; this machine is "
                 f"{platform.system()}/{platform.machine()}."
             )
         try:
             import mlx_audio  # noqa: F401, PLC0415
         except ImportError as ex:
-            raise EngineUnavailable("The mlx engine needs `pip install mlx-audio`") from ex
+            raise EngineUnavailable(
+                "Local speech needs `pip install -r requirements-local-llm.txt` on Python 3.13. "
+                "For Qwen alone, install `echo-tts[mlx]`. Choose --engine edge for online speech."
+            ) from ex
 
         if _is_kokoro(self.model_id):
             try:
@@ -209,3 +231,69 @@ class MlxEngine(BaseEngine):
     async def synthesize(self, text: str, voice: str, speed: float, out_path: Path) -> SynthOutput:
         await asyncio.to_thread(self._synthesize_blocking, text, voice, speed, out_path)
         return SynthOutput(path=out_path)
+
+
+class KokoroEngine(MlxEngine):
+    name = "kokoro"
+    label = "Kokoro (local)"
+
+    def __init__(self, voice: str = None, lang_code: str = None):
+        super().__init__(model_id=KOKORO_MODEL, voice=voice, lang_code=lang_code)
+
+    def check_voice(self, voice: str) -> None:
+        if voice not in _KOKORO_VOICES:
+            raise EngineUnavailable(f"Unknown Kokoro voice '{voice}'. Use --list-voices -e kokoro.")
+
+
+class QwenEngine(MlxEngine):
+    name = "qwen"
+    label = "Qwen (local)"
+    max_chars = 1000
+    # Qwen's generate() accepts speed but does not implement it; assembly uses atempo.
+    supports_speed = False
+
+    def __init__(self, model_id: str = None, voice: str = None, lang_code: str = None):
+        super().__init__(
+            model_id=model_id or os.environ.get("QWEN_TTS_MODEL", QWEN_MODEL),
+            voice=voice or os.environ.get("QWEN_TTS_VOICE", "Ryan"),
+            lang_code=lang_code if lang_code is not None else os.environ.get("QWEN_LANG_CODE", "English"),
+        )
+
+    def check_available(self) -> None:
+        super().check_available()
+        from importlib.metadata import version
+        from packaging.version import Version
+
+        if Version(version("mlx-audio")) < Version("0.6.5"):
+            raise EngineUnavailable("Qwen needs `pip install 'mlx-audio>=0.6.5,<0.7'`.")
+
+    def voices(self) -> list[VoiceInfo]:
+        return [
+            VoiceInfo(id=name, engine=self.name, name=name.replace("_", " "), language=language,
+                      locale=locale, gender=gender, tags="Multilingual")
+            for name, language, locale, gender in _QWEN_VOICES
+        ]
+
+    def check_voice(self, voice: str) -> None:
+        if voice.lower() not in {v[0].lower() for v in _QWEN_VOICES}:
+            raise EngineUnavailable(f"Unknown Qwen voice '{voice}'. Use --list-voices -e qwen.")
+
+    def _synthesize_blocking(self, text: str, voice: str, speed: float, out_path: Path) -> None:
+        import numpy as np
+
+        self.check_voice(voice)
+        model = self._model_or_load()
+        if getattr(getattr(model, "config", None), "tts_model_type", None) != "custom_voice":
+            raise EngineUnavailable("Qwen needs a CustomVoice checkpoint with stock voices, not Base or VoiceDesign.")
+        segments = list(model.generate(
+            text=text, voice=voice, lang_code=self.lang_code, max_tokens=_QWEN_MAX_TOKENS,
+        ))
+        if not segments:
+            raise EngineUnavailable(f"{self.model_id} produced no audio for this passage")
+        if any(s.token_count >= _QWEN_MAX_TOKENS for s in segments):
+            raise EngineUnavailable("Qwen reached its token limit; shorten the chunk before retrying.")
+        rate = segments[0].sample_rate
+        if any(s.sample_rate != rate for s in segments):
+            raise EngineUnavailable("Qwen returned inconsistent sample rates")
+        audio = np.concatenate([np.asarray(s.audio, dtype=np.float32).reshape(-1) for s in segments])
+        write_float_wav(audio, out_path, rate=rate)

@@ -940,13 +940,16 @@ class ConvertTab(QWidget):
                 model.item(row).setEnabled(False)
         start = self.engine_combo.findData(ec.DEFAULT_ENGINE)
         first_available = next((c.name for c in self._engine_choices if c.available), None)
-        if start >= 0 and self._engine_choices[start].available:
+        if start >= 0:
             self.engine_combo.setCurrentIndex(start)
         elif first_available:
             self.engine_combo.setCurrentIndex(self.engine_combo.findData(first_available))
         self.engine_combo.currentIndexChanged.connect(self._on_engine_changed)
 
-        self.voice_picker = VoicePicker(ec.DEFAULT_VOICE, engine=self.current_engine())
+        from echo_app.core import default_voice, get_engine
+
+        engine_name = self.current_engine()
+        self.voice_picker = VoicePicker(default_voice(get_engine(engine_name)), engine=engine_name)
         self.speed = SpeedControl(float(ec.DEFAULT_SPEED))
 
         self.format_combo = QComboBox()

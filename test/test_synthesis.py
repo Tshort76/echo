@@ -126,6 +126,16 @@ class TestRetry:
 
 
 class TestResume:
+    def test_model_change_in_the_same_engine_does_not_reuse_old_audio(self, tmp_path):
+        chunks = tmp_path / "chunks"
+        first = FakeEngine()
+        first.cache_identity = "checkpoint-a"
+        run(script_of(2), first, chunks)
+        second = FakeEngine()
+        second.cache_identity = "checkpoint-b"
+        run(script_of(2), second, chunks)
+        assert second.calls == 2
+
     def test_existing_chunks_are_reused(self, tmp_path):
         chunks = tmp_path / "chunks"
         script = script_of(4)

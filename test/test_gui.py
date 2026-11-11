@@ -23,7 +23,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 pytest.importorskip("PySide6", reason="GUI dependencies not installed")
 
-from PySide6.QtCore import Qt  # noqa: E402
+from PySide6.QtCore import QCoreApplication, QEvent, Qt  # noqa: E402
 from PySide6.QtGui import QColor  # noqa: E402
 from PySide6.QtWidgets import (  # noqa: E402
     QApplication,
@@ -52,7 +52,11 @@ def app():
 
 @pytest.fixture
 def window(app):
-    return MainWindow()
+    window = MainWindow()
+    yield window
+    window.close()
+    window.deleteLater()
+    QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)
 
 
 @pytest.fixture
@@ -198,6 +202,29 @@ class TestSlugify:
 
 
 class TestEngineDropdown:
+    def test_local_choices_select_their_own_default_voices(self, window):
+        tab = window.convert_tab
+        select_engine(tab, "kokoro")
+        assert tab.voice_picker.current_voice() == core.get_engine("kokoro").default_voice()
+        select_engine(tab, "qwen")
+        assert tab.voice_picker.current_voice() == "Ryan"
+
+    def test_an_unavailable_default_does_not_select_an_online_engine(self, app, monkeypatch):
+        import gui.app as gui_app
+        from gui.voices import EngineChoice
+
+        monkeypatch.setattr(gui_app.ec, "DEFAULT_ENGINE", "kokoro")
+        monkeypatch.setattr(gui_app.gv, "engine_choices", lambda: [
+            EngineChoice("edge", "Edge", True, "", ".mp3"),
+            EngineChoice("kokoro", "Kokoro", False, "Install local dependencies", ".wav"),
+        ])
+        window = MainWindow()
+        assert window.convert_tab.current_engine() == "kokoro"
+        assert window.convert_tab.voice_picker.current_voice() == "bf_emma"
+        window.close()
+        window.deleteLater()
+        QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)
+
     def test_it_lists_every_registered_engine(self, window):
         from echo.audio.engines import engine_names
 

@@ -8,7 +8,7 @@
 # exactly cannot share an environment with anything else.
 #
 #     pip install -r requirements.txt
-#     python create_audio.py book.epub          # edge-tts voices, no credentials
+#     python create_audio.py book.epub -e edge  # online voices, no credentials
 #
 # Optional extras, each in its own file:
 #
@@ -25,7 +25,7 @@
 # cloud voices.
 
 python-dotenv==1.2.4        # .env configuration
-edge-tts==7.3.1             # default TTS engine (Microsoft Edge voices)
+edge-tts==7.3.1             # optional online TTS (Microsoft Edge voices)
 mutagen==1.48.1             # ID3/MP4 tags and chapters, cover art, duration probing
 imageio-ffmpeg==0.7.0       # a static ffmpeg per platform, so no separate install
 pymupdf==2.0                # PDF text extraction and built-in Tesseract OCR

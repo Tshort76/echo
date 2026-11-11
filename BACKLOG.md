@@ -10,6 +10,13 @@ reasoning outlives the checkbox.
 
 ---
 
+**11 Nov 2026, local narrator choice.** Kokoro (Emma) is now the default in the
+library, CLI and GUI. Qwen3-TTS 0.6B CustomVoice (Ryan) is an explicit alternative.
+Both appear in the existing engine picker. The lightweight install still has no
+model runtime; pass `--engine edge` to use it without local dependencies. This
+changes the earlier zero-setup default decision at the owner's request. Local
+resume cache keys now distinguish checkpoint and language.
+
 ## Where we stand — 27 September 2026
 
 echo is now **a library plus an app**. `from echo import speak_chapters` takes

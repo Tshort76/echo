@@ -59,6 +59,18 @@ def _mlx() -> SpeechEngine:
     return MlxEngine()
 
 
+def _kokoro() -> SpeechEngine:
+    from echo.audio.engines.mlx import KokoroEngine
+
+    return KokoroEngine()
+
+
+def _qwen() -> SpeechEngine:
+    from echo.audio.engines.mlx import QwenEngine
+
+    return QwenEngine()
+
+
 def _piper() -> SpeechEngine:
     from echo.audio.engines.piper import PiperEngine
 
@@ -66,6 +78,8 @@ def _piper() -> SpeechEngine:
 
 
 _ENGINES: dict[str, Callable[[], SpeechEngine]] = {
+    "kokoro": _kokoro,
+    "qwen": _qwen,
     "edge": _edge,
     "gemini": _gemini,
     "google-cloud": _google_cloud,
@@ -78,8 +92,7 @@ _ALIASES = {
     "google": "google-cloud",
     "cloud": "google-cloud",
     "gcp": "google-cloud",
-    "local": "mlx",
-    "kokoro": "mlx",
+    "local": "kokoro",
     "mlx-audio": "mlx",
     "edge-tts": "edge",
     "piper-tts": "piper",

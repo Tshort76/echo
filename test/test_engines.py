@@ -13,12 +13,12 @@ from echo.audio.engines import (
 from echo.audio.engines.base import BaseEngine, VoiceInfo
 from echo.audio.engines.edge import EdgeEngine, speed_as_rate
 from echo.audio.engines.google import GeminiEngine, GoogleCloudEngine
-from echo.audio.engines.mlx import MlxEngine
+from echo.audio.engines.mlx import KokoroEngine, MlxEngine, QwenEngine
 
 
 class TestRegistry:
     def test_every_engine_is_registered(self):
-        assert set(engine_names()) == {"edge", "gemini", "google-cloud", "mlx", "piper"}
+        assert set(engine_names()) == {"kokoro", "qwen", "edge", "gemini", "google-cloud", "mlx", "piper"}
 
     @pytest.mark.parametrize(
         "alias,expected",
@@ -26,8 +26,8 @@ class TestRegistry:
             ("google", "google-cloud"),
             ("cloud", "google-cloud"),
             ("gcp", "google-cloud"),
-            ("local", "mlx"),
-            ("kokoro", "mlx"),
+            ("local", "kokoro"),
+            ("kokoro", "kokoro"),
             ("mlx-audio", "mlx"),
             ("edge-tts", "edge"),
             ("piper-tts", "piper"),
@@ -48,7 +48,7 @@ class TestRegistry:
 
     def test_none_falls_back_to_the_library_default_not_the_env(self, monkeypatch):
         monkeypatch.setenv("DEFAULT_ENGINE", "gemini")
-        assert get_engine(None).name == "edge"
+        assert get_engine(None).name == "kokoro"
 
     def test_availability_never_raises(self):
         for engine, ok, reason in available_engines():
@@ -59,7 +59,7 @@ class TestRegistry:
 class TestEngineContract:
     """Every engine must declare the attributes the pipeline reads."""
 
-    @pytest.mark.parametrize("name", ["edge", "gemini", "google-cloud", "mlx", "piper"])
+    @pytest.mark.parametrize("name", engine_names())
     def test_declares_the_full_contract(self, name):
         engine = get_engine(name)
         assert engine.name == name
@@ -207,6 +207,82 @@ class TestMlxEngine:
         ok, reason = engine.is_available()
         assert "espeak" not in reason.lower()
         assert "misaki" not in reason.lower()
+
+
+class TestLocalModelChoices:
+    def test_choices_do_not_follow_the_legacy_model_override(self, monkeypatch):
+        monkeypatch.setenv("MLX_TTS_MODEL", "mlx-community/chatterbox-turbo-4bit")
+        monkeypatch.setenv("MLX_TTS_VOICE", "bf_alice")
+        assert "Kokoro" in KokoroEngine().model_id
+        assert KokoroEngine().default_voice() == "bf_alice"
+        assert "CustomVoice" in QwenEngine().model_id
+        assert QwenEngine().default_voice() == "Ryan"
+        assert MlxEngine().model_id == "mlx-community/chatterbox-turbo-4bit"
+
+    def test_qwen_exposes_stock_voices_without_loading_a_model(self):
+        engine = QwenEngine()
+        voices = {v.id: v for v in engine.voices()}
+        assert voices["Ryan"].engine == "qwen"
+        assert voices["Ryan"].language == "en"
+        assert "Vivian" in voices
+        assert engine._model is None
+
+    @pytest.mark.parametrize("engine,voice", [(KokoroEngine(), "Ryan"), (QwenEngine(), "bf_emma")])
+    def test_other_models_voices_are_rejected(self, engine, voice):
+        with pytest.raises(EngineUnavailable, match="Unknown.*voice"):
+            engine.check_voice(voice)
+
+    def test_qwen_sends_voice_language_and_preserves_all_segments(self, tmp_path):
+        np = pytest.importorskip("numpy")
+        from types import SimpleNamespace
+        import wave
+
+        class Model:
+            config = SimpleNamespace(tts_model_type="custom_voice")
+
+            def generate(self, *, text, voice, lang_code, max_tokens):
+                assert (text, voice, lang_code) == ("A passage.", "Ryan", "English")
+                yield SimpleNamespace(audio=np.ones(2205) * .1, sample_rate=22050, token_count=30)
+                yield SimpleNamespace(audio=np.ones(2205) * -.1, sample_rate=22050, token_count=30)
+
+        engine = QwenEngine()
+        engine._model = Model()
+        path = tmp_path / "qwen.wav"
+        asyncio.run(engine.synthesize("A passage.", "Ryan", 1.0, path))
+        with wave.open(str(path)) as wav:
+            assert wav.getframerate() == 22050
+            assert wav.getnframes() == 4410
+        assert engine.supports_speed is False
+
+    def test_qwen_refuses_audio_that_hit_the_token_limit(self, tmp_path):
+        np = pytest.importorskip("numpy")
+        from types import SimpleNamespace
+
+        engine = QwenEngine()
+        engine._model = SimpleNamespace(
+            config=SimpleNamespace(tts_model_type="custom_voice"),
+            generate=lambda **kw: iter([SimpleNamespace(audio=np.zeros(2400), sample_rate=24000,
+                                                        token_count=kw["max_tokens"])]),
+        )
+        path = tmp_path / "truncated.wav"
+        with pytest.raises(EngineUnavailable, match="token limit"):
+            asyncio.run(engine.synthesize("A passage.", "Ryan", 1.0, path))
+        assert not path.exists()
+
+    def test_qwen_refuses_a_checkpoint_without_stock_voices(self, tmp_path):
+        pytest.importorskip("numpy")
+        from types import SimpleNamespace
+
+        engine = QwenEngine()
+        engine._model = SimpleNamespace(config=SimpleNamespace(tts_model_type="base"))
+        with pytest.raises(EngineUnavailable, match="CustomVoice"):
+            asyncio.run(engine.synthesize("A passage.", "Ryan", 1.0, tmp_path / "bad.wav"))
+
+    def test_cache_identity_distinguishes_model_and_language(self):
+        a = QwenEngine(model_id="checkpoint-a", lang_code="English")
+        b = QwenEngine(model_id="checkpoint-b", lang_code="English")
+        c = QwenEngine(model_id="checkpoint-a", lang_code="Spanish")
+        assert len({a.cache_identity, b.cache_identity, c.cache_identity}) == 3
 
 
 class TestPiperEngine:

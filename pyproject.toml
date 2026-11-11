@@ -24,7 +24,7 @@ google = ["google-genai>=2.34,<3", "google-cloud-texttospeech>=2.38,<3"]
 api = ["echo-tts[google]"]
 # On-device synthesis on Apple Silicon. Kokoro works on Python 3.13 only today;
 # see requirements-local-llm.txt for the misaki/spaCy/espeak setup it needs.
-mlx = ["mlx-audio>=0.6.3,<0.7"]
+mlx = ["mlx-audio>=0.6.5,<0.7"]
 local = ["echo-tts[mlx]"]
 # Offline synthesis on any OS and Python, CPU only: onnxruntime plus a bundled espeak-ng
 # (~180 MB). Voices (~60 MB each) download on first use.

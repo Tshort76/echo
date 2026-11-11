@@ -50,7 +50,7 @@ def _get_env_bool(env_key: str, default_: bool = False) -> bool:
 OUTPUT_FOLDER = os.path.expanduser(os.environ.get("DEFAULT_OUTPUT_FOLDER", ""))
 
 ##### Synthesis
-DEFAULT_ENGINE = os.environ.get("DEFAULT_ENGINE", "edge")
+DEFAULT_ENGINE = os.environ.get("DEFAULT_ENGINE", "kokoro")
 DEFAULT_VOICE = os.environ.get("DEFAULT_VOICE", "en-GB-SoniaNeural")
 # 1.0 on purpose: speed is baked into the audio by the engine, so a neutral
 # default leaves the file re-usable at any playback speed — players can always

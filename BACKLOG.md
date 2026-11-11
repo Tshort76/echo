@@ -17,6 +17,11 @@ model runtime; pass `--engine edge` to use it without local dependencies. This
 changes the earlier zero-setup default decision at the owner's request. Local
 resume cache keys now distinguish checkpoint and language.
 
+**11 Nov 2026, engine cleanup.** Removed Piper, Google Cloud TTS, and Gemini TTS,
+including their dependency extras and packaging hooks. Gemini remains available
+for research and text normalization. The picker is labelled **TTS Engine**.
+Earlier entries below describe the historical engine set.
+
 ## Where we stand — 27 September 2026
 
 echo is now **a library plus an app**. `from echo import speak_chapters` takes

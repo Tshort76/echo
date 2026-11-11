@@ -55,6 +55,7 @@ def _installed(module: str) -> bool:
 hiddenimports = []
 excludes = [
     "tkinter",
+    "piper", "google.cloud.texttospeech",
     "PySide6.QtWebEngineCore", "PySide6.QtWebEngineWidgets",
     "PySide6.QtQml", "PySide6.QtQuick", "PySide6.Qt3DCore",
     "PySide6.QtCharts", "PySide6.QtMultimedia", "PySide6.QtNetwork",
@@ -66,10 +67,8 @@ if _bundled_ffmpeg:
     excludes.append("imageio_ffmpeg")
 
 _OPTIONAL_ENGINES = {
-    "google.genai": ["google.genai", "echo.audio.engines.google"],
-    "google.cloud.texttospeech": ["google.cloud.texttospeech", "echo.audio.engines.google"],
+    "google.genai": ["google.genai"],
     "mlx_audio": ["mlx_audio", "mlx_audio.tts.utils", "echo.audio.engines.mlx"],
-    "piper": ["piper", "echo.audio.engines.piper"],
 }
 for _probe, _imports in _OPTIONAL_ENGINES.items():
     if _installed(_probe):
@@ -78,15 +77,6 @@ for _probe, _imports in _OPTIONAL_ENGINES.items():
     else:
         excludes.append(_probe)
         print(f"[echo_gui.spec] not installed, excluding: {_probe}")
-
-# Piper loads espeak-ng data and a compiled bridge from its package directory.
-if _installed("piper"):
-    from PyInstaller.utils.hooks import collect_all  # noqa: E402
-
-    _p_datas, _p_binaries, _p_hidden = collect_all("piper")
-    datas += _p_datas
-    binaries += _p_binaries
-    hiddenimports += _p_hidden
 
 # --- icon (optional; add art under packaging/icons/ later) ---
 _ico = HERE / "packaging" / "icons" / ("echo.ico" if IS_WIN else "echo.icns")

@@ -12,29 +12,21 @@ flowchart TB
   BASE["Protocol · echo/audio/engines/base.py"]
   subgraph cloud["Over the network"]
     EDGE["edge · echo/audio/engines/edge.py"]
-    GOOG["gemini, google-cloud · echo/audio/engines/google.py"]
   end
   subgraph local["On this machine"]
-    MLX["mlx · echo/audio/engines/mlx.py"]
-    PIPER["piper · echo/audio/engines/piper.py"]
+    MLX["kokoro, qwen, mlx · echo/audio/engines/mlx.py"]
   end
   MS{{"Microsoft speech"}}
-  GAPI{{"Google APIs"}}
   HF{{"Hugging Face"}}
   TTS --> REG
   REG --> EDGE
-  REG --> GOOG
   REG --> MLX
-  REG --> PIPER
   EDGE -.-> BASE
-  PIPER -.-> BASE
   EDGE -. "websocket" .-> MS
-  GOOG -. "HTTPS" .-> GAPI
   MLX -. "first use" .-> HF
-  PIPER -. "first use" .-> HF
   class TTS,REG,BASE stage
-  class EDGE,GOOG,MLX,PIPER focus
-  class MS,GAPI,HF ext
+  class EDGE,MLX focus
+  class MS,HF ext
   classDef entry fill:#E06D14,stroke:#A64F0E,stroke-width:2px,color:#1A1A1A
   classDef stage fill:#1F6F8B,stroke:#0B3C5D,stroke-width:2px,color:#ffffff
   classDef store fill:#387B5B,stroke:#255740,stroke-width:2px,color:#ffffff
@@ -45,16 +37,14 @@ flowchart TB
 | Engine | Writes | At once | Longest request | Applies speed itself | Needs |
 |---|---|---|---|---|---|
 | `edge` | `.mp3` | 4 | 8,000 characters | yes, as a rate string | nothing |
-| `gemini` | `.wav` | 2 | 6,000 characters | **no**, ffmpeg applies it | `GEMINI_API_KEY`, `[google]` extra |
-| `google-cloud` | `.mp3` | 4 | 4,000 characters | yes | Application Default Credentials, `[google]` extra |
-| `mlx` | `.wav` | 1 | 4,000 characters | yes | Apple Silicon, Python 3.13, `[mlx]` extra |
-| `piper` | `.wav` | 1 | 4,000 characters | yes, via the model's length scale | `[piper]` extra |
+| `kokoro`, `mlx` | `.wav` | 1 | 4,000 characters | yes | Apple Silicon, Python 3.13, `[mlx]` extra |
+| `qwen` | `.wav` | 1 | 1,000 characters | no, ffmpeg applies it | Apple Silicon, `[mlx]` extra |
 
-**Engines are constructed on first use and cached for the life of the process.** `get_engine()` (`echo/audio/engines/__init__.py:96`) imports each engine's module inside a factory function, so importing the registry never loads mlx, onnxruntime or the Google SDKs. Aliases (`kokoro`, `offline`, `google` and others) resolve to the five names above.
+**Engines are constructed on first use and cached for the life of the process.** `get_engine()` (`echo/audio/engines/__init__.py:96`) imports each engine's module inside a factory function, so importing the registry never loads model runtimes. Aliases (`local`, `mlx-audio`, `edge-tts`) resolve to the supported engines.
 
-**An engine says what is wrong before any audio is made.** `check_available()` raises `EngineUnavailable` with the install command or variable to set, and the GUI shows that text beside a greyed-out choice. The optional `check_voice()` (`echo/audio/engines/base.py`) catches a bad voice, such as a missing local Piper model, before the first chunk instead of after every chunk's retries.
+**An engine says what is wrong before any audio is made.** `check_available()` raises `EngineUnavailable` with the install command or variable to set, and the GUI shows that text beside a greyed-out choice. The optional `check_voice()` (`echo/audio/engines/base.py`) catches a bad voice, such as a voice from another model, before the first chunk instead of after every chunk's retries.
 
-**The longest request is a real limit, not a preference.** Google Cloud rejects requests over 5,000 bytes, so the library splits text to the smaller of the caller's chunk size and the engine's `max_chars`.
+**The longest request is a real limit, not a preference.** Qwen accepts shorter chunks than Kokoro, so the library splits text to the smaller of the caller's chunk size and the engine's `max_chars`.
 
 ## The app pipeline
 

@@ -75,7 +75,7 @@ class TestSpeakChapters:
 
 
 class VoiceCheckingEngine(FakeEngine):
-    """Rejects one voice up front, the way Piper rejects a missing local model."""
+    """Rejects one voice before synthesis."""
 
     def check_voice(self, voice):
         if voice == "missing":

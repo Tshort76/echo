@@ -206,7 +206,6 @@ echo has no database. Everything it keeps is a file or a folder.
 | Resume chunks (app) | `<name>_chunks/` beside the output | `echo/audio/tts.py` | the next run of the same book | removed after a successful run |
 | Scratch | a private `echo-` folder in the system temp directory or `work_dir` | `echo/speech.py` | the same call | removed when the call returns or raises |
 | Gutenberg downloads | `~/.cache/echo/gutenberg` | `echo_app/gutenberg.py` | later conversions | permanent cache |
-| Piper voices | `~/.cache/echo/piper` | `echo/audio/engines/piper.py` | later runs | permanent cache |
 | mlx model weights | the Hugging Face cache | `mlx_audio` | later runs | permanent cache |
 | Research reports, `--save` | `resources/research/` | `echo_app/research.py` | you | permanent, gitignored |
 | Voice previews | `echo-preview/` in the system temp directory | `echo_app/core.py` | the OS audio player | overwritten per voice |

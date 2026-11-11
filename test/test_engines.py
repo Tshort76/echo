@@ -12,26 +12,20 @@ from echo.audio.engines import (
 )
 from echo.audio.engines.base import BaseEngine, VoiceInfo
 from echo.audio.engines.edge import EdgeEngine, speed_as_rate
-from echo.audio.engines.google import GeminiEngine, GoogleCloudEngine
 from echo.audio.engines.mlx import KokoroEngine, MlxEngine, QwenEngine
 
 
 class TestRegistry:
     def test_every_engine_is_registered(self):
-        assert set(engine_names()) == {"kokoro", "qwen", "edge", "gemini", "google-cloud", "mlx", "piper"}
+        assert set(engine_names()) == {"kokoro", "qwen", "edge", "mlx"}
 
     @pytest.mark.parametrize(
         "alias,expected",
         [
-            ("google", "google-cloud"),
-            ("cloud", "google-cloud"),
-            ("gcp", "google-cloud"),
             ("local", "kokoro"),
             ("kokoro", "kokoro"),
             ("mlx-audio", "mlx"),
             ("edge-tts", "edge"),
-            ("piper-tts", "piper"),
-            ("offline", "piper"),
             ("EDGE", "edge"),
             ("  edge  ", "edge"),
         ],
@@ -46,8 +40,13 @@ class TestRegistry:
         with pytest.raises(ValueError, match="Unknown engine"):
             get_engine("wav2lip")
 
+    @pytest.mark.parametrize("name", ["piper", "gemini", "google-cloud", "google", "gcp", "piper-tts", "offline"])
+    def test_retired_engines_and_aliases_are_rejected(self, name):
+        with pytest.raises(ValueError, match="Unknown engine"):
+            get_engine(name)
+
     def test_none_falls_back_to_the_library_default_not_the_env(self, monkeypatch):
-        monkeypatch.setenv("DEFAULT_ENGINE", "gemini")
+        monkeypatch.setenv("DEFAULT_ENGINE", "edge")
         assert get_engine(None).name == "kokoro"
 
     def test_availability_never_raises(self):
@@ -102,47 +101,6 @@ class TestEdgeEngine:
 
     def test_needs_no_setup(self):
         assert EdgeEngine().is_available() == (True, "")
-
-
-class TestGoogleEngines:
-    def test_gemini_says_what_is_missing_without_a_key(self):
-        # On the lite install the SDK is absent, so the reason names that instead —
-        # also correct, just a different missing piece.
-        pytest.importorskip("google.genai", reason="google-genai not installed (lite tier)")
-        ok, reason = GeminiEngine(api_key="").is_available()
-        assert ok is False
-        assert "GEMINI_API_KEY" in reason
-
-    def test_gemini_says_what_to_install_when_the_sdk_is_absent(self, monkeypatch):
-        """The lite install has no google-genai; the message should say so."""
-        import builtins
-
-        real_import = builtins.__import__
-
-        def no_genai(name, *args, **kwargs):
-            if name.startswith("google.genai"):
-                raise ImportError("simulated: not installed")
-            return real_import(name, *args, **kwargs)
-
-        monkeypatch.setattr(builtins, "__import__", no_genai)
-        ok, reason = GeminiEngine(api_key="a-key").is_available()
-        assert ok is False
-        assert "google-genai" in reason
-
-    def test_gemini_offers_the_prebuilt_voices(self):
-        voices = GeminiEngine(api_key="x").voices()
-        assert len(voices) == 30
-        assert {v.id for v in voices} >= {"Kore", "Puck", "Zephyr"}
-        assert all(v.engine == "gemini" for v in voices)
-
-    def test_gemini_cannot_control_rate_so_ffmpeg_does(self):
-        assert GeminiEngine(api_key="x").supports_speed is False
-
-    def test_cloud_stays_under_the_five_thousand_byte_request_limit(self):
-        assert GoogleCloudEngine().max_chars < 5000
-
-    def test_cloud_supports_its_own_rate(self):
-        assert GoogleCloudEngine().supports_speed is True
 
 
 class TestMlxEngine:
@@ -285,76 +243,10 @@ class TestLocalModelChoices:
         assert len({a.cache_identity, b.cache_identity, c.cache_identity}) == 3
 
 
-class TestPiperEngine:
-    @pytest.mark.parametrize(
-        "voice_id,expected",
-        [
-            ("en_GB-alan-medium", ("Alan", "en", "GB", "medium")),
-            ("en_GB-northern_english_male-medium", ("Northern English Male", "en", "GB", "medium")),
-            ("de_DE-thorsten-high", ("Thorsten", "de", "DE", "high")),
-        ],
-    )
-    def test_voice_ids_decode_into_voice_info(self, voice_id, expected):
-        from echo.audio.engines.piper import _voice_info
-
-        info = _voice_info(voice_id)
-        assert (info.name, info.language, info.locale, info.tags) == expected
-
-    def test_downloaded_voices_join_the_catalogue(self, tmp_path):
-        from echo.audio.engines.piper import PiperEngine
-
-        (tmp_path / "fr_FR-siwis-medium.onnx").write_bytes(b"")
-        ids = [v.id for v in PiperEngine(voice_dir=tmp_path).voices()]
-        assert "fr_FR-siwis-medium" in ids and "en_GB-alan-medium" in ids
-
-    def test_a_local_onnx_path_loads_without_downloading(self, tmp_path, monkeypatch):
-        piper = pytest.importorskip("piper")
-        import piper.download_voices as dv
-        from echo.audio.engines.piper import PiperEngine
-
-        model = tmp_path / "custom.onnx"
-        model.write_bytes(b"")
-        (tmp_path / "custom.onnx.json").write_text("{}")
-        loaded = []
-        monkeypatch.setattr(dv, "download_voice", lambda *a: pytest.fail("downloaded a local model"))
-        monkeypatch.setattr(piper.PiperVoice, "load", staticmethod(lambda path: loaded.append(path) or "voice"))
-        assert PiperEngine(voice_dir=tmp_path / "cache")._load(str(model)) == "voice"
-        assert loaded == [model]
-
-    @pytest.mark.parametrize("missing", ["custom.onnx", "custom.onnx.json"])
-    def test_a_local_model_missing_a_file_says_which(self, tmp_path, missing):
-        from echo.audio.engines.piper import _local_model
-
-        for name in {"custom.onnx", "custom.onnx.json"} - {missing}:
-            (tmp_path / name).write_text("{}")
-        with pytest.raises(EngineUnavailable, match="does not exist|no config"):
-            _local_model(str(tmp_path / "custom.onnx"))
-
-    @pytest.mark.parametrize("speed,expected", [(1.0, 0.9), (1.5, 0.6), (0.5, 1.8)])
-    def test_speed_divides_the_models_own_length_scale(self, tmp_path, speed, expected):
-        pytest.importorskip("piper")
-        from echo.audio.engines.piper import PiperEngine
-
-        seen = {}
-
-        class FakeVoice:
-            config = type("C", (), {"length_scale": 0.9})()
-
-            def synthesize_wav(self, text, wav, syn_config):
-                seen["scale"] = syn_config.length_scale
-                wav.setnchannels(1), wav.setsampwidth(2), wav.setframerate(22050)
-                wav.writeframes(b"\x00\x00" * 100)
-
-        engine = PiperEngine(voice_dir=tmp_path)
-        engine._loaded["v"] = FakeVoice()
-        engine._synthesize_blocking("hi", "v", speed, tmp_path / "out.wav")
-        assert seen["scale"] == pytest.approx(expected)
-
-
 class TestVoiceInfo:
     def test_label_includes_locale_and_gender(self):
         v = VoiceInfo(id="x", engine="edge", name="Sonia", locale="GB", gender="Female")
         assert v.label == "Sonia (GB) · Female"
 
     def test_label_degrades_when_metadata_is_absent(self):
-        assert VoiceInfo(id="Kore", engine="gemini", name="Kore").label == "Kore"
+        assert VoiceInfo(id="Ryan", engine="qwen", name="Ryan").label == "Ryan"

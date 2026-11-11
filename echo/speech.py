@@ -249,7 +249,7 @@ def speak_chapters(
             ``.m4b``) unless ``fmt`` is given. MP3 carries ID3 CHAP/CTOC chapter
             frames; M4B carries native chapters.
         engine: a registry name (default ``kokoro``; also ``qwen``, ``edge``,
-            ``gemini``, ``google-cloud``, ``mlx``, ``piper``)
+            ``mlx``)
             or a :class:`~echo.audio.engines.SpeechEngine` instance.
         voice: engine-specific voice id; the engine's default when omitted.
         speed: rate multiplier. Applied by the engine when it can, else by ffmpeg.

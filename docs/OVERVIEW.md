@@ -65,7 +65,7 @@ flowchart TB
 | `echo/speech.py` | `speak_chapters`, `aspeak_chapters`, `speak_script`, `aspeak_script`, `Chapter`, `SpeechResult` |
 | `echo/text.py` | `split_text` |
 | `echo/audio/tts.py` | `synthesize_script`: retries, resume, bounded concurrency, progress |
-| `echo/audio/engines/` | `edge`, `gemini`, `google-cloud`, `mlx`, `piper` behind one `SpeechEngine` protocol |
+| `echo/audio/engines/` | `kokoro`, `qwen`, `edge`, `mlx` behind one `SpeechEngine` protocol |
 | `echo/audio/assemble.py` | ffmpeg concat, `atempo` speed, M4B chapters, SRT, durations |
 | `echo/audio/mp3_utils.py` | ffmpeg discovery, ID3 `CHAP`/`CTOC` chapters, tags and cover art |
 

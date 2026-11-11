@@ -146,10 +146,8 @@ echo/              # THE LIBRARY — `from echo import speak_chapters`. Never im
     engines/
       base.py      # SpeechEngine protocol, BaseEngine, VoiceInfo, SynthOutput
       __init__.py  # Registry: get_engine(), available_engines(), all_voices(), aliases
-      edge.py      # edge-tts (default); rate-string conversion; WordBoundary timings
-      google.py    # GeminiEngine (API key) + GoogleCloudEngine (ADC, free tier)
-      mlx.py       # mlx-audio on Apple Silicon; Kokoro voice decoding + espeak wiring
-      piper.py     # Piper (ONNX, CPU): offline on any OS/Python; voices fetched on first use
+      edge.py      # edge-tts; rate-string conversion; WordBoundary timings
+      mlx.py       # Kokoro (default), Qwen and generic mlx on Apple Silicon
     tts.py         # Orchestration: retry, resume, bounded concurrency, progress callback + log line
     assemble.py    # ffmpeg concat, chapters (M4B native, MP3 via mp3_utils), atempo speed, SRT, durations
     mp3_utils.py   # configure_ffmpeg(); ID3 CHAP/CTOC chapters; ID3 + MP4 tags and cover art
@@ -234,15 +232,15 @@ alone".
 
 Two attributes carry real weight:
 
-- **`max_chars`** — Cloud TTS rejects requests over 5,000 bytes, well under echo's
+- **`max_chars`** — Qwen limits requests to 1,000 characters, below echo's
   8,000-character default, so `core.build_script()` chunks to
   `min(CHUNK_SIZE, engine.max_chars)`.
-- **`supports_speed`** — Gemini TTS has no rate parameter. Rather than ignoring
+- **`supports_speed`** — Qwen does not implement its speed parameter. Rather than ignoring
   `--speed`, the assembler applies it with ffmpeg's `atempo` filter (chained when
   outside 0.5–2.0). Engines that can do it themselves do.
 
 Engines are constructed lazily and cached per process, so importing the registry
-never pulls in mlx or the Google SDKs. `check_available()` must raise
+never pulls in model runtimes. `check_available()` must raise
 `EngineUnavailable` with a message that says what to install or which variable to
 set — the GUI shows that text directly and greys the engine out.
 

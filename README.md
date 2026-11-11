@@ -2,7 +2,7 @@
 
 Turn PDFs, EPUBs, Markdown and text files into **chaptered audiobooks**.
 Kokoro is the default local narrator; choose Qwen for another local voice, or
-Edge and Google for online synthesis.
+Edge for free online synthesis.
 
 ```bash
 python create_audio.py my_book.epub
@@ -58,13 +58,12 @@ Measured `site-packages` sizes on Python 3.13:
 | Install | Size | What you get |
 | --- | --- | --- |
 | `requirements.txt` | **100 MB** | Everything below plus `--engine edge`. No local models. |
-| `requirements-api.txt` | **194 MB** | + Gemini and Google Cloud voices, Deep Research, LLM normalization. Still nothing local. |
+| `requirements-api.txt` | — | + Gemini Deep Research and text normalization. No speech engines. |
 | `requirements-pdf-layout.txt` | +180 MB | + real PDF heading detection (see the caveat below) |
-| `requirements-piper.txt` | +180 MB | + `--engine piper`: offline synthesis on the CPU, any OS, Python 3.14 included. Each voice is a 60 MB download the first time it is used. |
 | `requirements-local-llm.txt` | ~2 GB plus weights | + `kokoro` (default) and `qwen`: offline synthesis on Apple Silicon |
 
 The local tier is the default narration setup. The tiers are additive, so
-`pip install -r requirements-api.txt` gives you the core plus the cloud engines.
+`pip install -r requirements-api.txt` gives you the core plus research and text normalization.
 
 **The PDF caveat.** The lite install reads a PDF's own text layer: the book converts
 fine, but chapter breaks are *inferred* from short shouted lines rather than
@@ -102,7 +101,7 @@ M4B_BITRATE="64k"               # AAC/MP3 bitrate when re-encoding
 WRITE_TRANSCRIPT="false"        # also write .srt when the engine reports timings
 
 # Synthesis
-DEFAULT_ENGINE="kokoro"         # kokoro | qwen | edge | gemini | google-cloud | mlx | piper
+DEFAULT_ENGINE="kokoro"         # kokoro | qwen | edge | mlx
 DEFAULT_VOICE="en-GB-SoniaNeural"
 DEFAULT_SPEED="1.0"             # baked into the audio; 1.0 keeps the file re-usable
 DEFAULT_CHUNK_SIZE="8000"       # characters per request, capped by the engine's own limit
@@ -123,20 +122,15 @@ RESEARCH_DIR="resources/research"          # kept reports land here (gitignored)
 RESEARCH_POLL_SECONDS="15"
 RESEARCH_TIMEOUT_SECONDS="1800"  # give up (and cancel) after 30 minutes
 
-# Google engines
-GEMINI_API_KEY="..."            # for --engine gemini and --normalize gemini
+# Gemini research and text normalization
+GEMINI_API_KEY="..."            # for --research and --normalize gemini
                                 # (GOOGLE_API_KEY works too)
-GEMINI_TTS_MODEL="gemini-2.5-flash-preview-tts"
-GOOGLE_CLOUD_VOICE="en-GB-Neural2-C"
 
 # Local synthesis (Apple Silicon)
 MLX_TTS_MODEL="prince-canuma/Kokoro-82M"
 MLX_TTS_VOICE="bf_emma"
 MLX_LANG_CODE=""                # blank infers the language from the voice name
 
-# Local synthesis (any OS, CPU)
-PIPER_VOICE="en_GB-alan-medium"  # a catalogue id, or a path to a local .onnx model
-PIPER_VOICE_DIR="~/.cache/echo/piper"     # where downloaded voices are kept
 
 # Optional LLM text normalization
 NORMALIZER="off"                # off | local | gemini
@@ -159,41 +153,6 @@ Free, no account, 322 voices, nothing to install. It reaches an unofficial
 endpoint, so it occasionally returns a websocket 403 — echo retries, and a
 failed run resumes. It is also the only engine that reports word timings, so
 `--transcript` produces an `.srt`.
-
-### `gemini` — Gemini TTS
-
-Needs only `GEMINI_API_KEY`. Thirty expressive prebuilt voices. The TTS models
-take no rate parameter, so `--speed` is applied by ffmpeg when the audio is
-joined — the result is exact either way.
-
-### `google-cloud` — Google Cloud Text-to-Speech
-
-The best free allowance: **4M Standard / 1M WaveNet characters a month,
-permanently** (a 300-page book is roughly 500k characters). The REST API does
-**not** accept API keys, so authenticate with Application Default Credentials:
-
-```bash
-gcloud auth application-default login
-# or: export GOOGLE_APPLICATION_CREDENTIALS=/path/to/service-account.json
-```
-
-### `piper` — local, offline, anywhere
-
-```bash
-pip install -r requirements-piper.txt
-python create_audio.py book.epub -e piper -v en_GB-alan-medium
-```
-
-This is the local engine that runs everywhere: any OS, any supported Python, and a
-CPU is enough. Measured at **RTF 0.027**, so a ten-hour book synthesizes in about
-16 minutes. It sounds a step below Kokoro, but it needs no espeak or spaCy setup,
-because the wheel bundles espeak-ng. Each voice is a ~60 MB file that is downloaded
-the first time it is used into `~/.cache/echo/piper` (set `PIPER_VOICE_DIR` to
-change that). After that it runs offline. `--list-voices -e piper` shows a short
-list of English voices, and any id from
-[piper-voices](https://huggingface.co/rhasspy/piper-voices) also works. A voice can also be
-the path to a local `.onnx` model, with its `.onnx.json` config beside it. That
-model loads as-is, with no download.
 
 ### `kokoro` and `qwen` — local narration on Apple Silicon
 
@@ -352,13 +311,13 @@ python create_audio.py book.pdf --first-page 30 --last-page 120 --save --transcr
 python create_audio.py book.pdf --normalize local
 
 # Browse voices
-python create_audio.py --list-voices -e gemini
+python create_audio.py --list-voices -e qwen
 ```
 
 | Flag | Meaning |
 | --- | --- |
 | `-o, --output` | where to write the audio (default: beside the source) |
-| `-e, --engine` | `kokoro` (default), `qwen`, `edge`, `gemini`, `google-cloud`, `mlx`, `piper` |
+| `-e, --engine` | `kokoro` (default), `qwen`, `edge`, `mlx` |
 | `-v, --voice` | voice id for that engine (default: the engine's own) |
 | `-s, --speed` | playback multiplier, 0.5–3.0 |
 | `-f, --format` | `m4b` (chapters) or `mp3` |
@@ -461,8 +420,8 @@ build manually: `pyinstaller echo_gui.spec --noconfirm --clean`.
 - **ffmpeg** is bundled and required. If `fetch_ffmpeg.py` can't download a
   static build (its source URLs can drift), install ffmpeg yourself — the app
   falls back to one on `PATH`. Bundled ffmpeg is GPL/LGPL; keep its `LICENSE.txt`.
-- **Internet** is needed at runtime for the `edge`, `gemini` and `google-cloud`
-  engines. `kokoro`, `qwen`, and `mlx` work offline once their assets are cached.
+- **Internet** is needed at runtime for the `edge` engine, Gemini research,
+  and Gemini normalization. `kokoro`, `qwen`, and `mlx` work offline once their assets are cached.
 - **Scanned PDFs** still need Tesseract installed separately.
 - Unsigned apps trip **Gatekeeper** (macOS: right-click → Open, or
   `xattr -dr com.apple.quarantine Echo.app`) and **SmartScreen** (Windows:
@@ -505,10 +464,9 @@ for title, start_ms, end_ms in result.chapters: ...
   times you get back already account for `speed`.
 - **Configured by argument.** `engine`, `voice`, `speed`, `chunk_size`, `bitrate`
   and the retry policy are all parameters. Importing `echo` reads no `.env` file
-  and changes nothing in `os.environ`. Engines read their own credentials from
-  the environment when first used: `GEMINI_API_KEY` for `gemini`, Application
-  Default Credentials for `google-cloud`.
-- **Check before you synthesize.** `get_engine("gemini").check_available()` raises
+  and changes nothing in `os.environ`. Local engines read model and voice
+  overrides from the environment when first constructed.
+- **Check before you synthesize.** `get_engine("kokoro").check_available()` raises
   `EngineUnavailable` with what to install or set. `available_engines()` lists
   every engine with `(engine, ok, reason)`. You can also pass your own
   `SpeechEngine` instance as `engine=`.
@@ -533,8 +491,6 @@ below 1.0. Anything under `echo.audio` is internal.
 | Engine | Python | Extra |
 | --- | --- | --- |
 | `edge` | 3.11+, including 3.14 | none |
-| `gemini`, `google-cloud` | 3.11+ | `[google]` |
-| `piper` | 3.11+, including 3.14; any OS, CPU only | `[piper]` |
 | `kokoro`, `mlx` (Kokoro) | **3.13 only** on Apple Silicon, since its phonemizer needs spaCy, which does not build on 3.14 yet. `check_available()` says so. | `[mlx]`, plus the setup in `requirements-local-llm.txt` |
 | `qwen` | Apple Silicon; verified on Python 3.13 | `[mlx]` |
 

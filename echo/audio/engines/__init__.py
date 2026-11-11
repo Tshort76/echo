@@ -3,7 +3,7 @@
 Adding an engine is a module plus one line in :data:`_ENGINES` — no changes to
 the pipeline, the CLI or the GUI. Engines are constructed lazily so that
 importing this package never pulls in a heavy optional dependency (mlx, the
-Google SDKs) or touches the network.
+other model runtimes) or touches the network.
 """
 
 from __future__ import annotations
@@ -41,18 +41,6 @@ def _edge() -> SpeechEngine:
     return EdgeEngine()
 
 
-def _gemini() -> SpeechEngine:
-    from echo.audio.engines.google import GeminiEngine
-
-    return GeminiEngine()
-
-
-def _google_cloud() -> SpeechEngine:
-    from echo.audio.engines.google import GoogleCloudEngine
-
-    return GoogleCloudEngine()
-
-
 def _mlx() -> SpeechEngine:
     from echo.audio.engines.mlx import MlxEngine
 
@@ -71,32 +59,18 @@ def _qwen() -> SpeechEngine:
     return QwenEngine()
 
 
-def _piper() -> SpeechEngine:
-    from echo.audio.engines.piper import PiperEngine
-
-    return PiperEngine()
-
-
 _ENGINES: dict[str, Callable[[], SpeechEngine]] = {
     "kokoro": _kokoro,
     "qwen": _qwen,
     "edge": _edge,
-    "gemini": _gemini,
-    "google-cloud": _google_cloud,
     "mlx": _mlx,
-    "piper": _piper,
 }
 
-#: Friendly aliases, so `--engine google` and `--engine kokoro` do the obvious thing.
+#: Alternate names for the supported engines.
 _ALIASES = {
-    "google": "google-cloud",
-    "cloud": "google-cloud",
-    "gcp": "google-cloud",
     "local": "kokoro",
     "mlx-audio": "mlx",
     "edge-tts": "edge",
-    "piper-tts": "piper",
-    "offline": "piper",
 }
 
 _cache: dict[str, SpeechEngine] = {}

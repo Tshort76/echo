@@ -94,8 +94,8 @@ RESEARCH_TIMEOUT_SECONDS = _get_env_float("RESEARCH_TIMEOUT_SECONDS", 1800.0)
 ##### Gemini key, for the gemini normalizer and Deep Research
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")
 
-# Engine settings (GEMINI_TTS_MODEL, GOOGLE_CLOUD_VOICE, MLX_TTS_MODEL, MLX_TTS_VOICE,
-# MLX_LANG_CODE, PIPER_VOICE, PIPER_VOICE_DIR) are read by the engines themselves in
+# Engine settings (MLX_TTS_MODEL, MLX_TTS_VOICE, MLX_LANG_CODE, QWEN_TTS_MODEL,
+# QWEN_TTS_VOICE, QWEN_LANG_CODE) are read by the engines themselves in
 # echo/audio/engines/, when first used. load_dotenv() above is what lets .env set them.
 
 ##### Optional LLM normalization

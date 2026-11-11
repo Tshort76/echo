@@ -976,7 +976,7 @@ class ConvertTab(QWidget):
         form.addWidget(QLabel("Source:"), r, 0, Qt.AlignLeft | Qt.AlignVCenter)
         form.addLayout(input_row, r, 1)
         r += 1
-        form.addWidget(QLabel("Engine:"), r, 0, Qt.AlignLeft | Qt.AlignVCenter)
+        form.addWidget(QLabel("TTS Engine:"), r, 0, Qt.AlignLeft | Qt.AlignVCenter)
         form.addWidget(self.engine_combo, r, 1)
         r += 1
         form.addWidget(QLabel("Voice:"), r, 0, Qt.AlignLeft | Qt.AlignVCenter)

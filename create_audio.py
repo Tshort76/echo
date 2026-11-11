@@ -253,7 +253,7 @@ def main(argv: list[str] = None) -> int:
     }
 
     log.info(
-        f"Source: {args.file_path}\nEngine: {args.engine}\nVoice: {args.voice or '(engine default)'}\n"
+        f"Source: {args.file_path}\nTTS Engine: {args.engine}\nVoice: {args.voice or '(engine default)'}\n"
         f"Speed: {args.speed}\nFormat: {args.fmt}\nNormalizer: {args.normalizer}\n"
         f"Metadata: {args.mp3_meta}\n--------------------"
     )

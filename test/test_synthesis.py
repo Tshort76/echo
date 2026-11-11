@@ -259,7 +259,7 @@ class TestVoicePreview:
     def test_it_does_not_write_into_the_working_directory(self):
         """It used to default to DEFAULT_OUTPUT_FOLDER or ".", dropping sample.mp3
         wherever you happened to run it."""
-        path = core.preview_path("Kore", engine="gemini")
+        path = core.preview_path("Ryan", engine="qwen")
         assert path.is_relative_to(Path(tempfile.gettempdir()))
         assert Path.cwd() not in path.parents
 
@@ -281,7 +281,7 @@ class TestVoicePreview:
         assert engine.texts == [core.PREVIEW_TEXT]
 
     def test_a_speedless_engine_still_gets_the_chosen_speed(self, tmp_path, monkeypatch):
-        """Gemini TTS takes no rate parameter. Previewing at 1.25x must not silently
+        """Qwen does not apply its speed parameter. Previewing at 1.25x must not silently
         play at 1.0x — ffmpeg applies it, exactly as the assembler does for a book."""
         engine = FakeEngine()
         engine.supports_speed = False

@@ -243,13 +243,13 @@ class TestEngineDropdown:
         tab = window.convert_tab
         select_engine(tab, "edge")
         edge_voices = {tab.voice_picker.voice_combo.itemData(i) for i in range(tab.voice_picker.voice_combo.count())}
-        select_engine(tab, "gemini")
-        gemini_voices = {
+        select_engine(tab, "qwen")
+        qwen_voices = {
             tab.voice_picker.voice_combo.itemData(i) for i in range(tab.voice_picker.voice_combo.count())
         }
-        assert edge_voices and gemini_voices
-        assert edge_voices != gemini_voices
-        assert "Kore" in gemini_voices  # a Gemini prebuilt voice
+        assert edge_voices and qwen_voices
+        assert edge_voices != qwen_voices
+        assert "Ryan" in qwen_voices
 
 
 class TestFormat:

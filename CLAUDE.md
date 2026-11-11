@@ -99,7 +99,8 @@ python bulk_generate.py /path/to/books                    # whole folder
 
 # Desktop GUI — three ways in
 python echo_gui.py                                        # needs requirements-gui.txt
-./echo.sh                                                 # zsh launcher (see below)
+echo                                                      # local zsh shortcut, from this folder
+./echo.sh                                                 # direct launcher (see below)
 open dist/Echo.app                                        # the frozen build
 
 # Tests (work from the repo root or from inside test/)
@@ -115,13 +116,13 @@ python packaging/build_app.py                             # -> dist/Echo.app | d
 part of the repo (`.gitignore` names it explicitly). It anchors every path on
 `${0:A:h}`, the script's own directory with symlinks resolved, rather than on the
 caller's cwd, and `cd`s into the repo before launching because `constants.py` reads
-`.env` from the current directory. It runs `.venv/bin/python` directly instead of
+`.env` from the current directory. It runs `.venv-build/bin/python` directly instead of
 `source`-ing the activate script — equivalent for a single command, less to break.
 Recreate it from this description if it goes missing; don't add it to the repo
-without asking. Two traps it exists to avoid: a relative `python echo_gui.py` only
-works from the repo root, and a bare `echo-ui` on the command line only works if the
-directory is on `PATH`. **Never name such a script plain `echo`** — the shell builtin
-shadows it and it silently does nothing.
+without asking. The owner's `.zshrc` defines an `echo` function: with no arguments
+and this repository as the current directory, it runs `echo.sh`. With arguments
+or from another directory, it calls the normal shell builtin. A file named `echo`
+would not provide that shortcut because the shell builtin takes precedence.
 
 **The frozen app cannot read the repo's `.env`.** Launched from Finder its cwd is
 `/`, so `load_dotenv()` finds nothing and every `.env` knob falls back to its
